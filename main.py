@@ -7,8 +7,8 @@ import urllib.request
 import math
 
 # --- 1. CONFIGURATION ---
-SKIP_FRAMES = 30         # Cek wajah setiap 30 frame (hemat CPU)
-THRESHOLD = 0.5          # Threshold VGG-Face (Naikkan jika wajah asli tidak dikenali)
+SKIP_FRAMES = 30
+THRESHOLD = 0.55
 INPUT_RES = (640, 480)   # Resolusi kamera (Standard VGA)
 
 # --- 2. SETUP MODEL YUNET ---
@@ -86,7 +86,7 @@ frame_count = 0
 
 # Variabel untuk menyimpan status wajah agar tidak perlu cek tiap frame
 # Format: [{'box': [x,y,w,h], 'status': True/False}]
-tracked_faces = [] 
+tracked_faces = []
 
 print("INFO: Mulai kamera. Tekan 'q' untuk keluar.")
 
@@ -153,7 +153,6 @@ while True:
                             dist = get_distance(target, curr_emb)
                             if dist < min_dist: min_dist = dist
 
-                        # DEBUG PRINT (Lihat di terminal)
                         print(f"DEBUG: Jarak wajah = {min_dist:.4f} (Threshold: {THRESHOLD})")
 
                         if min_dist <= THRESHOLD:
@@ -165,6 +164,11 @@ while True:
             current_faces_status.append({'box': box, 'status': is_whitelisted})
 
             # --- VISUALISASI ---
+            if not is_whitelisted:
+                blur_roi = cv2.GaussianBlur(face_img, (51, 51), 30)
+                sframe[y:y+h, x:x+w] = blur_roi
+
+            """
             if is_whitelisted:
                 # UNLOCK (Hijau)
                 cv2.rectangle(sframe, (x, y), (x+w, y+h), (0, 255, 0), 2)
@@ -175,8 +179,8 @@ while True:
                     # Blur yang sangat kuat
                     blur_roi = cv2.GaussianBlur(face_img, (51, 51), 30)
                     sframe[y:y+h, x:x+w] = blur_roi
-                    # cv2.rectangle(sframe, (x, y), (x+w, y+h), (0, 0, 255), 1) # Optional: Kotak merah
                 except: pass
+            """
 
     # Update tracking list
     tracked_faces = current_faces_status
