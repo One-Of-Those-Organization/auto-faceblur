@@ -47,6 +47,7 @@ else:
 print(f"INFO: Successfully generated {len(target_embeddings)} embeddings.")
 
 cap = cv2.VideoCapture(0)
+target_dims = (320, 240)
 while True:
     ret, frame = cap.read()
     if not ret:
@@ -56,19 +57,21 @@ while True:
     if cv2.waitKey(1) & 0xFF == ord('q'):
         break
 
+    sframe = cv2.resize(frame, target_dims, interpolation=cv2.INTER_LINEAR)
+
     try:
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        gray = cv2.cvtColor(sframe, cv2.COLOR_BGR2GRAY)
         # faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(30, 30))
         faces_frontal = frontal_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(30, 30))
         faces_profile = profile_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(30, 30))
         faces = list(faces_frontal) + list(faces_profile)
 
         for (x, y, w, h) in faces:
-            face_img = frame[y:y+h, x:x+w]
+            face_img = sframe[y:y+h, x:x+w]
 
         # Use DeepFace to extract all faces using the RetinaFace detector
         # detected_faces = DeepFace.extract_faces(
-        #     img_path=frame,
+        #     img_path=sframe,
         #     detector_backend="retinaface",
         #     enforce_detection=True
         # )
@@ -81,7 +84,7 @@ while True:
         #     w = face_info['facial_area']['w']
         #     h = face_info['facial_area']['h']
         #
-        #     face_img = frame[y:y+h, x:x+w]
+        #     face_img = sframe[y:y+h, x:x+w]
 
             if not target_embeddings:
                 is_whitelisted = False
@@ -133,21 +136,10 @@ while True:
                     is_whitelisted = True
 
             # d. Terapkan Aksi
-            """
-            if is_whitelisted:
-                # === AUTHORIZED USER ===
-                cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
-                cv2.putText(frame, "CREATOR (Dist: {:.2f})".format(min_distance), (x, y-10), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
-            else:
-                # === UNAUTHORIZED USER (BLUR) ===
-                # Terapkan Gaussian Blur pada area wajah saja
-                frame[y:y+h, x:x+w] = cv2.GaussianBlur(face_img, (99, 99), 30)
-                cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 0, 255), 2)
-            """
             if not is_whitelisted:
-                frame[y:y+h, x:x+w] = cv2.GaussianBlur(face_img, (99, 99), 30)
+                sframe[y:y+h, x:x+w] = cv2.GaussianBlur(face_img, (99, 99), 30)
 
-        cv2.imshow('LIVE CAMERA FEED', frame)
+        cv2.imshow('LIVE CAMERA FEED', sframe)
     except Exception as e:
         print(f"ERROR: Loop stopped with error: {e}")
 cap.release()
