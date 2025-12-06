@@ -1,4 +1,4 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python3
 import os
 import cv2
 import numpy as np
@@ -18,13 +18,13 @@ fps = 0
 prev_time = time.time()
 
 # ============================================================
-# LOAD YOLOv11 FACE MODEL
+# LOAD MODEL
 # ============================================================
 print("INFO: Loading YOLOv11 model...")
-model = YOLO("model.pt")    # your model
+model = YOLO("model.pt")
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model.to(device)
-print("INFO: YOLO model loaded on", device)
+print("INFO: Model loaded on", device)
 
 # ============================================================
 # COSINE DISTANCE
@@ -41,7 +41,7 @@ def get_distance(emb1, emb2):
 # YOLO BACKBONE EMBEDDING FUNCTION
 # ============================================================
 @torch.no_grad()
-def get_yolo_embedding(img_bgr):
+def get_embedding(img_bgr):
     # 1. Safety check
     if img_bgr is None or img_bgr.size == 0:
         return None
@@ -99,7 +99,7 @@ for fname in os.listdir(whitelist_path):
         print("  - Failed to load", fname)
         continue
 
-    emb = get_yolo_embedding(img)
+    emb = get_embedding(img)
     if emb is not None:
         target_embeddings.append(emb)
         print("  + Loaded:", fname)
@@ -176,7 +176,7 @@ while True:
 
             # Recognition
             if needs_recognition and len(target_embeddings) > 0:
-                emb = get_yolo_embedding(face)
+                emb = get_embedding(face)
                 if emb is not None:
                     dists = [get_distance(t, emb) for t in target_embeddings]
                     if min(dists) <= THRESHOLD:
@@ -190,14 +190,14 @@ while True:
             # Blur or highlight
             if not is_whitelisted:
                 sframe[y1:y2, x1:x2] = blur_face(face)
-            else:
-                cv2.rectangle(sframe, (x1, y1), (x2, y2),
-                              (0, 255, 0), 2)
+            # else:
+            #     cv2.rectangle(sframe, (x1, y1), (x2, y2),
+            #                   (0, 255, 0), 2)
 
     tracked_faces = current_faces_status
     frame_count += 1
 
-    cv2.imshow("Auto Face Blur (YOLO Embedding)", sframe)
+    cv2.imshow("Auto Face Blur", sframe)
     if cv2.waitKey(1) & 0xFF == ord('q'):
         break
 
