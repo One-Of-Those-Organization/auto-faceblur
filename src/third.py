@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 """
-Auto Face Blur using YOLOv11 Embeddings
+Auto Face Blur using YOLOv11 Backbone Embeddings
 
-Fungsi:
-- Deteksi wajah real-time dengan YOLOv11
-- Membuat embedding wajah untuk whitelist
-- Blur wajah yang tidak ada di whitelist
-- Tracking sederhana untuk efisiensi
+- Detect faces in real-time using YOLOv11
+- Generate embeddings from YOLO backbone
+- Compare with whitelist embeddings
+- Blur faces not in whitelist
 """
 
 import os
@@ -18,85 +17,87 @@ import torch
 from ultralytics import YOLO
 
 # ============================================================
-# CONFIG
+# CONFIGURATION
 # ============================================================
-SKIP_FRAMES = 20          # Interval frame untuk melakukan recognition
-THRESHOLD = 0.45          # Cosine distance threshold untuk whitelist
-INPUT_RES = (640, 480)    # Resolusi input kamera
+SKIP_FRAMES = 20          # Recognition every N frames
+THRESHOLD = 0.45          # Cosine distance threshold for whitelist match
+INPUT_RES = (640, 480)    # Camera input resolution
 
 fps = 0
 prev_time = time.time()
 
 # ============================================================
-# LOAD YOLO MODEL
+# LOAD MODEL
 # ============================================================
-MODEL_PATH = "../model/model.pt"  # Pastikan path ini sesuai lokasi file
 print("INFO: Loading YOLOv11 model...")
-model = YOLO(MODEL_PATH)
-
-# Tentukan device
+model = YOLO("../model/model.pt")  # Update path if needed
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model.to(device)
 print("INFO: Model loaded on", device)
 
 # ============================================================
-# HELPER FUNCTIONS
+# UTILITY FUNCTIONS
 # ============================================================
 
 def get_distance(emb1, emb2):
-    """Hitung cosine distance antara dua embedding"""
+    """Calculate cosine distance between two embeddings."""
     return 1 - np.dot(emb1, emb2) / (np.linalg.norm(emb1) * np.linalg.norm(emb2))
 
 @torch.no_grad()
 def get_embedding(img_bgr):
-    """Ambil embedding wajah dari YOLO backbone"""
+    """Generate normalized embedding from YOLO backbone features."""
     if img_bgr is None or img_bgr.size == 0:
         return None
 
-    # Resize ke 128x128 untuk konsistensi
+    # Preprocess: resize and normalize
     input_img = cv2.resize(img_bgr, (128, 128))
-    tensor = torch.from_numpy(input_img).float().to(device)
-    tensor = tensor / 255.0
-    tensor = tensor.permute(2, 0, 1).unsqueeze(0)  # (B, C, H, W)
+    tensor = torch.from_numpy(input_img).float().to(device) / 255.0
+    tensor = tensor.permute(2, 0, 1).unsqueeze(0)  # B, C, H, W
 
-    # Ambil fitur dari backbone YOLO (layer 0-9)
+    # Extract features from YOLO backbone (first 10 layers)
     x = tensor
     for i, layer in enumerate(model.model.model):
         x = layer(x)
         if i == 9:
             break
 
-    # Global Average Pooling + L2 Normalization
+    # Global average pooling + L2 normalization
     embedding = torch.mean(x, dim=(2, 3)).flatten()
     embedding = embedding / embedding.norm()
+
     return embedding.cpu().numpy()
 
+
 def blur_face(face):
-    """Gaussian blur untuk wajah"""
+    """Apply Gaussian blur to face region."""
     return cv2.GaussianBlur(face, (51, 51), 30)
 
 def is_close(box1, box2, limit=50):
-    """Cek apakah dua bounding box dekat (tracking sederhana)"""
+    """Check if two bounding boxes are spatially close (for tracking)."""
     cx1, cy1 = (box1[0] + box1[2]) // 2, (box1[1] + box1[3]) // 2
     cx2, cy2 = (box2[0] + box2[2]) // 2, (box2[1] + box2[3]) // 2
-    dist = math.sqrt((cx1 - cx2)**2 + (cy1 - cy2)**2)
+    dist = math.sqrt((cx1 - cx2) ** 2 + (cy1 - cy2) ** 2)
     return dist < limit
 
 # ============================================================
 # LOAD WHITELIST EMBEDDINGS
 # ============================================================
-WHITELIST_PATH = "../whitelist/"
-os.makedirs(WHITELIST_PATH, exist_ok=True)
-
+print("INFO: Loading whitelist...")
+whitelist_path = "../whitelist/"
 target_embeddings = []
-for fname in os.listdir(WHITELIST_PATH):
-    path = os.path.join(WHITELIST_PATH, fname)
+
+os.makedirs(whitelist_path, exist_ok=True)
+
+for fname in os.listdir(whitelist_path):
+    path = os.path.join(whitelist_path, fname)
     if not os.path.isfile(path):
         continue
+
     img = cv2.imread(path)
     if img is None:
         print("  - Failed to load", fname)
         continue
+
     emb = get_embedding(img)
     if emb is not None:
         target_embeddings.append(emb)
@@ -117,20 +118,21 @@ tracked_faces = []
 print("INFO: Camera running... Press 'q' to quit.")
 
 while True:
-    ret, frame = cap.read()
-    if not ret:
+    ok, frame = cap.read()
+    if not ok:
         break
 
     sframe = cv2.resize(frame, INPUT_RES)
 
-    # Hitung FPS
+    # FPS calculation
     curr_time = time.time()
-    fps = 1 / (curr_time - prev_time)
+    fps = 1 / (curr_time - prev_time) if (curr_time - prev_time) > 0 else 0
     prev_time = curr_time
+
     cv2.putText(sframe, f"FPS: {fps:.2f}", (10, 25),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
 
-    # Deteksi wajah
+    # Detect faces using YOLO
     results = model(sframe, stream=True, verbose=False)
     current_faces_status = []
 
@@ -145,20 +147,19 @@ while True:
             if face is None or face.size == 0:
                 continue
 
-            # Default status
             is_whitelisted = False
             needs_recognition = (frame_count % SKIP_FRAMES == 0)
 
-            # Tracking sederhana
+            # Tracking previous faces
             if not needs_recognition:
                 for tf in tracked_faces:
-                    if is_close([x1,y1,x2,y2], tf["box"]):
+                    if is_close([x1, y1, x2, y2], tf["box"]):
                         is_whitelisted = tf["status"]
                         break
                 else:
                     needs_recognition = True
 
-            # Recognition
+            # Recognition using embeddings
             if needs_recognition and len(target_embeddings) > 0:
                 emb = get_embedding(face)
                 if emb is not None:
@@ -171,7 +172,7 @@ while True:
                 "status": is_whitelisted
             })
 
-            # Apply blur
+            # Apply blur if not whitelisted
             if not is_whitelisted:
                 sframe[y1:y2, x1:x2] = blur_face(face)
 
