@@ -1,2 +1,0 @@
-Thanks to:
-- For the face recog model: https://huggingface.co/AdamCodd/YOLOv11n-face-detection/blob/main/model.pt

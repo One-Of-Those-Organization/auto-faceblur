@@ -33,3 +33,6 @@ Quick start
 
 Note on tf-keras
 - The requirements file lists `tf-keras` as requested. If `tf-keras` is unavailable on your environment or you prefer the main TensorFlow package, install `tensorflow` (and optionally `keras`) instead. For GPU support, install the appropriate TensorFlow GPU package for your system.
+
+Thanks to:
+- For the face recog model: https://huggingface.co/AdamCodd/YOLOv11n-face-detection/blob/main/model.pt

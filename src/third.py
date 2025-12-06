@@ -1,4 +1,14 @@
 #!/usr/bin/env python3
+"""
+Auto Face Blur using YOLOv11 Embeddings
+
+Fungsi:
+- Deteksi wajah real-time dengan YOLOv11
+- Membuat embedding wajah untuk whitelist
+- Blur wajah yang tidak ada di whitelist
+- Tracking sederhana untuk efisiensi
+"""
+
 import os
 import cv2
 import numpy as np
@@ -10,95 +20,83 @@ from ultralytics import YOLO
 # ============================================================
 # CONFIG
 # ============================================================
-SKIP_FRAMES = 20          # perform recognition every N frames
-THRESHOLD = 0.45          # cosine distance threshold for whitelist match
-INPUT_RES = (640, 480)
+SKIP_FRAMES = 20          # Interval frame untuk melakukan recognition
+THRESHOLD = 0.45          # Cosine distance threshold untuk whitelist
+INPUT_RES = (640, 480)    # Resolusi input kamera
 
 fps = 0
 prev_time = time.time()
 
 # ============================================================
-# LOAD MODEL
+# LOAD YOLO MODEL
 # ============================================================
+MODEL_PATH = "../model/model.pt"  # Pastikan path ini sesuai lokasi file
 print("INFO: Loading YOLOv11 model...")
-model = YOLO("model.pt")
+model = YOLO(MODEL_PATH)
+
+# Tentukan device
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model.to(device)
 print("INFO: Model loaded on", device)
 
 # ============================================================
-# COSINE DISTANCE
+# HELPER FUNCTIONS
 # ============================================================
+
 def get_distance(emb1, emb2):
+    """Hitung cosine distance antara dua embedding"""
     return 1 - np.dot(emb1, emb2) / (np.linalg.norm(emb1) * np.linalg.norm(emb2))
 
-# ============================================================
-# YOLO BACKBONE EMBEDDING FUNCTION
-# ============================================================
-# Uses first 12 backbone layers → global average pooling → normalized embedding
-# Lightweight and fast (1–3 ms)
-# ============================================================
-# YOLO BACKBONE EMBEDDING FUNCTION
-# ============================================================
 @torch.no_grad()
 def get_embedding(img_bgr):
-    # 1. Safety check
+    """Ambil embedding wajah dari YOLO backbone"""
     if img_bgr is None or img_bgr.size == 0:
         return None
 
-    # 2. Preprocessing
-    # Resize to a fixed input size (critical for consistent embeddings)
-    # 128x128 is a good balance between speed and feature retention for faces
+    # Resize ke 128x128 untuk konsistensi
     input_img = cv2.resize(img_bgr, (128, 128))
-
-    # Convert BGR to RGB, normalize to 0-1, and change layout to (B, C, H, W)
-    tensor = torch.from_numpy(input_img).to(device).float()
+    tensor = torch.from_numpy(input_img).float().to(device)
     tensor = tensor / 255.0
-    tensor = tensor.permute(2, 0, 1).unsqueeze(0) # Add batch dimension
+    tensor = tensor.permute(2, 0, 1).unsqueeze(0)  # (B, C, H, W)
 
-    # 3. Feature Extraction (Backbone only)
-    # Access the internal PyTorch model.
-    # In YOLOv8/v11, the backbone usually ends at layer 9 (SPPF layer).
-    # We iterate through the first 10 layers (0-9).
+    # Ambil fitur dari backbone YOLO (layer 0-9)
     x = tensor
-    # model.model is the DetectionModel, model.model.model is the nn.Sequential
     for i, layer in enumerate(model.model.model):
         x = layer(x)
-        if i == 9: # Stop after the SPPF layer (end of backbone)
+        if i == 9:
             break
 
-    # x is now a feature map (e.g., [1, 512, 4, 4])
-
-    # 4. Global Average Pooling (GAP)
-    # Squash spatial dimensions (H, W) to create a single vector
+    # Global Average Pooling + L2 Normalization
     embedding = torch.mean(x, dim=(2, 3)).flatten()
-
-    # 5. L2 Normalization
-    # Essential for Cosine Similarity to work correctly
     embedding = embedding / embedding.norm()
-
     return embedding.cpu().numpy()
 
+def blur_face(face):
+    """Gaussian blur untuk wajah"""
+    return cv2.GaussianBlur(face, (51, 51), 30)
+
+def is_close(box1, box2, limit=50):
+    """Cek apakah dua bounding box dekat (tracking sederhana)"""
+    cx1, cy1 = (box1[0] + box1[2]) // 2, (box1[1] + box1[3]) // 2
+    cx2, cy2 = (box2[0] + box2[2]) // 2, (box2[1] + box2[3]) // 2
+    dist = math.sqrt((cx1 - cx2)**2 + (cy1 - cy2)**2)
+    return dist < limit
 
 # ============================================================
 # LOAD WHITELIST EMBEDDINGS
 # ============================================================
-print("INFO: Loading whitelist...")
-whitelist_path = "whitelist/"
+WHITELIST_PATH = "../whitelist/"
+os.makedirs(WHITELIST_PATH, exist_ok=True)
+
 target_embeddings = []
-
-os.makedirs(whitelist_path, exist_ok=True)
-
-for fname in os.listdir(whitelist_path):
-    path = os.path.join(whitelist_path, fname)
+for fname in os.listdir(WHITELIST_PATH):
+    path = os.path.join(WHITELIST_PATH, fname)
     if not os.path.isfile(path):
         continue
-
     img = cv2.imread(path)
     if img is None:
         print("  - Failed to load", fname)
         continue
-
     emb = get_embedding(img)
     if emb is not None:
         target_embeddings.append(emb)
@@ -107,19 +105,7 @@ for fname in os.listdir(whitelist_path):
         print("  - No face in", fname)
 
 target_embeddings = np.array(target_embeddings)
-print("INFO:", len(target_embeddings), "whitelist embeddings loaded.")
-
-# ============================================================
-# HELPERS
-# ============================================================
-def blur_face(face):
-    return cv2.GaussianBlur(face, (51, 51), 30)
-
-def is_close(box1, box2, limit=50):
-    cx1, cy1 = (box1[0] + box1[2]) // 2, (box1[1] + box1[3]) // 2
-    cx2, cy2 = (box2[0] + box2[2]) // 2, (box2[1] + box2[3]) // 2
-    dist = math.sqrt((cx1 - cx2)**2 + (cy1 - cy2)**2)
-    return dist < limit
+print(f"INFO: {len(target_embeddings)} whitelist embeddings loaded.")
 
 # ============================================================
 # MAIN LOOP
@@ -131,29 +117,26 @@ tracked_faces = []
 print("INFO: Camera running... Press 'q' to quit.")
 
 while True:
-    ok, frame = cap.read()
-    if not ok:
+    ret, frame = cap.read()
+    if not ret:
         break
 
     sframe = cv2.resize(frame, INPUT_RES)
 
-    # FPS calculation
+    # Hitung FPS
     curr_time = time.time()
     fps = 1 / (curr_time - prev_time)
     prev_time = curr_time
-
     cv2.putText(sframe, f"FPS: {fps:.2f}", (10, 25),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
 
-    # YOLO detection
+    # Deteksi wajah
     results = model(sframe, stream=True, verbose=False)
-
     current_faces_status = []
 
     for result in results:
         for box in result.boxes:
             x1, y1, x2, y2 = map(int, box.xyxy[0])
-
             h, w, _ = sframe.shape
             x1, y1 = max(0, x1), max(0, y1)
             x2, y2 = min(w, x2), min(h, y2)
@@ -162,10 +145,11 @@ while True:
             if face is None or face.size == 0:
                 continue
 
+            # Default status
             is_whitelisted = False
             needs_recognition = (frame_count % SKIP_FRAMES == 0)
 
-            # Tracking
+            # Tracking sederhana
             if not needs_recognition:
                 for tf in tracked_faces:
                     if is_close([x1,y1,x2,y2], tf["box"]):
@@ -187,12 +171,9 @@ while True:
                 "status": is_whitelisted
             })
 
-            # Blur or highlight
+            # Apply blur
             if not is_whitelisted:
                 sframe[y1:y2, x1:x2] = blur_face(face)
-            # else:
-            #     cv2.rectangle(sframe, (x1, y1), (x2, y2),
-            #                   (0, 255, 0), 2)
 
     tracked_faces = current_faces_status
     frame_count += 1
