@@ -1,38 +1,72 @@
-# Auto-Faceblur - Computer Vision
+# Auto-Faceblur
 
-Automatically detect and blur faces in images and video using DeepFace and OpenCV.
+Automatically detect and blur faces in images and videos using AI with support for whitelist functionality.
 
-Overview
-- Detect faces in images or video frames using DeepFace's face detectors (or other detectors as available).
-- Blur detected faces (Gaussian or pixelation) to anonymize people.
-- Simple CLI / script examples for processing single images and videos.
+## Overview
 
-Features
-- Image and video processing
-- Confidence threshold for face detections
-- Choice of blur method and blur strength
-- Works with CPU and (when installed) GPU-accelerated TensorFlow
+Auto-Faceblur is a computer vision tool that automatically detects and anonymizes faces in media files using modern AI models including YOLOv11 for accurate face detection. 
 
-Requirements
+## Features
+
+- Image and video processing with multiple format support
+- High accuracy face detection using YOLOv11n model
+- Customizable blur methods (Gaussian blur and pixelation)
+- Adjustable confidence threshold for detection sensitivity
+- Whitelist support to exclude specific faces from blurring
+- CPU and GPU acceleration support when available
+- Optimized performance for real-time processing
+
+## Requirements
+
 - Python 3.8+
-- See requirements.txt for Python packages used by this project.
+- Dependencies listed in requirements.txt
 
-Quick start
+## Installation
 
-1. Clone the repository
+1.  Clone the repository
+   ```bash
    git clone https://github.com/One-Of-Those-Organization/auto-faceblur.git
    cd auto-faceblur
+   ```
 
 2. Create a virtual environment (recommended)
-   python -m venv .venv
+   ```bash
+   python -m venv . venv
    source .venv/bin/activate   # macOS / Linux
    .venv\Scripts\activate      # Windows PowerShell
+   ```
 
 3. Install dependencies
+   ```bash
    pip install -r requirements.txt
+   ```
 
-Note on tf-keras
-- The requirements file lists `tf-keras` as requested. If `tf-keras` is unavailable on your environment or you prefer the main TensorFlow package, install `tensorflow` (and optionally `keras`) instead. For GPU support, install the appropriate TensorFlow GPU package for your system.
+## Project Structure
 
-Thanks to:
-- For the face recog model: https://huggingface.co/AdamCodd/YOLOv11n-face-detection/blob/main/model.pt
+```
+auto-faceblur/
+├── src/              # Source code directory
+├── model/            # AI model files
+├── weight/           # Model weights
+├── requirements. txt  # Python dependencies
+└── README.md        # Documentation
+```
+
+## Technical Details
+
+### AI Models
+- **Face Detection**: YOLOv11n optimized for face detection
+- **Framework**: OpenCV, TensorFlow/tf-keras, Ultralytics YOLO
+- **Performance**: Optimized for both CPU and GPU processing
+
+## Credits
+
+- Face detection model: [YOLOv11n-face-detection by AdamCodd](https://huggingface.co/AdamCodd/YOLOv11n-face-detection/blob/main/model. pt)
+
+## Performance Notes
+
+The tool has been optimized for:
+- Efficient face detection using YOLOv11
+- Memory optimization for processing large files
+- Multi-threading support for batch operations
+- Real-time processing capabilities
