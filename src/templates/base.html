@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ title or "Auto Face Blur" }}</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='ukdc.png') }}">
+</head>
+
+<body class="min-h-screen flex flex-col bg-gray-50">
+
+<!-- HEADER -->
+<header class="bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 text-white shadow-lg">
+    <div class="max-w-6xl mx-auto py-4 px-6 flex items-center justify-between">
+
+        <!-- LEFT: LOGO + TITLE -->
+        <div class="flex items-center space-x-3">
+            <img src="{{ url_for('static', filename='ukdc.png') }}" class="w-10 h-10 rounded shadow">
+            <h1 class="text-xl md:text-2xl font-bold whitespace-nowrap">Auto Face Blur</h1>
+        </div>
+
+        <!-- RIGHT: NAV + PROFILE -->
+        <div class="flex items-center gap-6">
+
+            <!-- DESKTOP MENU -->
+            <nav class="hidden md:flex gap-6 items-center">
+                <a href="/" class="nav-item hidden hover:text-yellow-300 transition">Home</a>
+                <a href="/camera" class="nav-item hidden hover:text-yellow-300 transition">Camera</a>
+                <a href="/about" class="nav-item hidden hover:text-yellow-300 transition">About</a>
+            </nav>
+
+            <!-- PROFILE NAME -->
+            <div id="profile-wrapper" class="hidden md:flex items-center gap-2">
+                <span id="profile-name" class="font-bold"></span>
+                <button id="logout-btn"
+                        class="hidden text-sm bg-red-500 hover:bg-red-600 px-3 py-1 rounded-md">
+                    Logout
+                </button>
+            </div>
+
+            <!-- MOBILE MENU BUTTON -->
+            <button id="menu-btn" class="md:hidden text-white focus:outline-none">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none"
+                     viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                          d="M4 6h16M4 12h16M4 18h16"/>
+                </svg>
+            </button>
+        </div>
+    </div>
+
+    <!-- MOBILE DROPDOWN -->
+    <div id="menu-dropdown" class="hidden md:hidden bg-purple-600 px-6 py-3 space-y-2">
+
+        <a href="/" class="mobile-item hidden block py-2 text-white hover:text-yellow-300">Home</a>
+        <a href="/camera" class="mobile-item hidden block py-2 text-white hover:text-yellow-300">Camera</a>
+        <a href="/about" class="mobile-item hidden block py-2 text-white hover:text-yellow-300">About</a>
+
+        <div class="border-t border-purple-400 pt-2">
+            <span id="mobile-profile" class="font-semibold"></span>
+
+            <button id="mobile-logout"
+                    class="hidden mt-2 bg-red-500 hover:bg-red-600 px-3 py-1 rounded text-white text-sm">
+                Logout
+            </button>
+        </div>
+    </div>
+</header>
+
+<!-- CONTENT -->
+<main class="flex-grow p-4 md:p-6">
+    {% block content %}{% endblock %}
+</main>
+
+<!-- FOOTER -->
+<footer class="text-center py-4 text-gray-600 text-sm md:text-base">
+    &copy; 2025 Computer Vision - Universitas Katolik Darma Cendika
+</footer>
+
+<!-- SCRIPT -->
+<script>
+    const menuBtn = document.getElementById("menu-btn");
+    const dropdown = document.getElementById("menu-dropdown");
+
+    menuBtn.addEventListener("click", () => {
+        dropdown.classList.toggle("hidden");
+    });
+
+    // ======================================
+    // NAVBAR LOGIN LOGIC
+    // ======================================
+
+    function updateNavbar() {
+        const user = localStorage.getItem("user");
+
+        const navItems = document.querySelectorAll(".nav-item");
+        const mobileItems = document.querySelectorAll(".mobile-item");
+
+        const profileName = document.getElementById("profile-name");
+        const profileWrapper = document.getElementById("profile-wrapper");
+        const logoutBtn = document.getElementById("logout-btn");
+
+        const mobileProfile = document.getElementById("mobile-profile");
+        const mobileLogout = document.getElementById("mobile-logout");
+
+        if (user) {
+            // SUDAH LOGIN
+            navItems.forEach(item => item.classList.remove("hidden"));
+            mobileItems.forEach(item => item.classList.remove("hidden"));
+
+            profileWrapper.classList.remove("hidden");
+            profileName.textContent = "Hi, " + user;
+            logoutBtn.classList.remove("hidden");
+
+            mobileProfile.textContent = user;
+            mobileLogout.classList.remove("hidden");
+
+        } else {
+            // BELUM LOGIN
+            navItems.forEach(item => item.classList.add("hidden"));
+            mobileItems.forEach(item => item.classList.add("hidden"));
+
+            profileWrapper.classList.remove("hidden");
+            profileName.textContent = "Please Login";
+            profileName.className = "text-white font-bold py-2 px-4 hover:text-yellow-300 transition";
+            profileName.onclick = () => window.location.href = "/login";
+
+            mobileProfile.textContent = "Please Login";
+            profileName.className = "text-white font-bold py-2 px-4 hover:text-yellow-300 transition";
+            mobileProfile.onclick = () => window.location.href = "/login";
+        }
+    }
+
+    // ======================================
+    // LOGOUT BTN
+    // ======================================
+    function logout() {
+        localStorage.clear();
+        updateNavbar();
+        window.location.href = "/";  // balik ke home
+    }
+
+    document.getElementById("logout-btn").onclick = logout;
+    document.getElementById("mobile-logout").onclick = logout;
+
+    updateNavbar();
+</script>
+
+</body>
+</html>
+

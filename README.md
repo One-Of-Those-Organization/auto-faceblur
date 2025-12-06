@@ -48,8 +48,9 @@ auto-faceblur/
 ├── src/              # Source code directory
 ├── model/            # AI model files
 ├── weight/           # Model weights
-├── requirements. txt  # Python dependencies
-└── README.md        # Documentation
+├── requirements. txt # Python dependencies
+└── README.md         # Documentation
+├── OldReadme.md      # Old Documentation
 ```
 
 ## Technical Details
@@ -61,7 +62,7 @@ auto-faceblur/
 
 ## Credits
 
-- Face detection model: [YOLOv11n-face-detection by AdamCodd](https://huggingface.co/AdamCodd/YOLOv11n-face-detection/blob/main/model. pt)
+- Face detection model: [YOLOv11n-face-detection by AdamCodd](https://huggingface.co/AdamCodd/YOLOv11n-face-detection/blob/main/model.pt)
 
 ## Performance Notes
 

@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto">
+
+    <!-- TITLE -->
+    <h1 class="text-3xl text-center font-bold text-gray-800 mb-6">Tentang Auto Face Blur</h1>
+
+    <p class="text-gray-700 text-lg mb-8">
+        Auto Face Blur adalah sistem yang mampu mendeteksi wajah secara real-time
+        dan memburamkan wajah orang yang tidak terdaftar dalam whitelist.
+        Sistem ini menggunakan model <strong>YOLOv11</strong> untuk deteksi dan ekstraksi embedding.
+    </p>
+
+    <!-- CARD #1: Overview -->
+    <div class="bg-white p-6 rounded-2xl shadow-lg mb-6 border border-gray-200">
+        <h2 class="text-2xl font-semibold text-indigo-600 mb-3">🔍 Ringkasan Sistem</h2>
+        <p class="text-gray-700 leading-relaxed">
+            Sistem Auto Face Blur bekerja dengan:
+        </p>
+        <ul class="list-disc ml-6 text-gray-700 mt-2 space-y-1">
+            <li>Mendeteksi wajah menggunakan YOLOv11</li>
+            <li>Mengambil embedding dari backbone YOLO</li>
+            <li>Membandingkan embedding wajah baru dengan whitelist</li>
+            <li>Mengaburkan wajah yang tidak terdaftar sebagai whitelist</li>
+            <li>Menggunakan tracking ringan supaya tidak menghitung embedding setiap frame</li>
+        </ul>
+    </div>
+
+    <!-- CARD #2: YOLOv11 & Embedding -->
+    <div class="bg-white p-6 rounded-2xl shadow-lg mb-6 border border-gray-200">
+        <h2 class="text-2xl font-semibold text-purple-600 mb-3">⚙️ YOLOv11 & Face Embedding</h2>
+
+        <p class="text-gray-700 leading-relaxed mb-3">
+            Sistem menggunakan metode yang cukup unik: bukannya memakai model FaceNet
+            atau ArcFace, embedding dibuat dari <strong>backbone YOLOv11</strong> itu sendiri.
+        </p>
+
+        <p class="text-gray-700">
+            Prosesnya:
+        </p>
+
+        <ul class="list-disc ml-6 text-gray-700 mt-2 space-y-1">
+            <li>Frame dipotong menjadi patch wajah</li>
+            <li>Wajah diproses ke ukuran <strong>128×128</strong></li>
+            <li>Masuk ke 10 layer awal backbone YOLO</li>
+            <li>Fitur diambil lalu dilakukan <strong>global average pooling</strong></li>
+            <li>Embedding dinormalisasi (L2 Normalized)</li>
+        </ul>
+    </div>
+
+    <!-- CARD #3: Whitelist -->
+    <div class="bg-white p-6 rounded-2xl shadow-lg mb-6 border border-gray-200">
+        <h2 class="text-2xl font-semibold text-green-600 mb-3">🟢 Whitelist Wajah</h2>
+
+        <p class="text-gray-700 leading-relaxed mb-3">
+            Sistem mendukung <strong>whitelist</strong>, yaitu daftar wajah yang
+            <strong>tidak akan di-blur</strong>.
+        </p>
+
+        <p class="text-gray-700">Cara kerja whitelist:</p>
+
+        <ul class="list-disc ml-6 text-gray-700 mt-2 space-y-1">
+            <li>Folder <code>/whitelist/</code> berisi foto wajah yang diizinkan</li>
+            <li>Setiap foto dibuat embedding-nya saat startup</li>
+            <li>Pada setiap deteksi wajah baru, embedding akan dibandingkan terhadap whitelist</li>
+            <li>Jika jarak embedding &le; threshold → wajah dianggap dikenal</li>
+            <li>Jika tidak dikenal → wajah akan <strong>blur otomatis</strong></li>
+        </ul>
+
+        <div class="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg">
+            <p class="text-green-700 font-medium">
+                Threshold: <strong>0.45</strong> (Cosine Distance)
+            </p>
+        </div>
+    </div>
+
+    <!-- CARD #4: Blur & Tracking -->
+    <div class="bg-white p-6 rounded-2xl shadow-lg mb-6 border border-gray-200">
+        <h2 class="text-2xl font-semibold text-pink-600 mb-3">🌀 Blur & Tracking Wajah</h2>
+
+        <p class="text-gray-700 leading-relaxed">
+            Untuk performa real-time, sistem tidak melakukan perhitungan embedding setiap frame.
+        </p>
+
+        <ul class="list-disc ml-6 text-gray-700 mt-2 space-y-1 mt-3">
+            <li>Recognition dilakukan setiap <strong>20 frame</strong></li>
+            <li>Frame lain menggunakan data tracking (cek posisi kotak wajah)</li>
+            <li>Blur menggunakan Gaussian Blur (51×51 kernel)</li>
+        </ul>
+
+        <p class="text-gray-700 mt-4">
+            Dengan cara ini, FPS tetap stabil dan akurasi tetap terjaga.
+        </p>
+    </div>
+
+    <!-- CARD #5: Alur Sistem -->
+    <div class="bg-white p-6 rounded-2xl shadow-lg border border-gray-200">
+        <h2 class="text-2xl font-semibold text-blue-600 mb-3">🔄 Alur Kerja Sistem</h2>
+
+        <ol class="list-decimal ml-6 text-gray-700 space-y-1">
+            <li>Ambil frame dari kamera</li>
+            <li>Deteksi wajah dengan YOLOv11</li>
+            <li>Untuk wajah baru → generate embedding</li>
+            <li>Bandingkan dengan whitelist</li>
+            <li>Jika tidak cocok → blur wajah</li>
+            <li>Tampilkan frame ke layar</li>
+            <li>Ulangi sampai user menekan <strong>‘q’</strong></li>
+        </ol>
+    </div>
+
+</div>
+{% endblock %}
