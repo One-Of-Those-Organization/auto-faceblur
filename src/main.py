@@ -30,9 +30,11 @@ def camera():
     return render_template('camera.html')
 
 # About Route
+"""
 @app.route('/about', methods=['GET'])
 def about():
     return render_template('about.html')
+"""
 
 # Login Route
 @app.route('/login', methods=['GET'])
@@ -143,7 +145,8 @@ def register():
 
 @app.route('/be/logout', methods=["POST"])
 def be_logout():
-    if no session.get("logged_in"):
+    logged_in = session.get("logged_in")
+    if not logged_in:
         return jsonify({
             "status": 0,
             "message": "Need to be logged-in first."

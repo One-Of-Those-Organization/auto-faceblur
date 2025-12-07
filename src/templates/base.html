@@ -26,20 +26,10 @@
         <div class="flex items-center gap-6">
 
             <!-- DESKTOP MENU -->
-            <nav class="hidden md:flex gap-6 items-center">
+            <nav id="nav-item" class="hidden md:flex gap-6 items-center">
                 <a href="/camera" class="nav-item hover:text-green-600 transition">Camera</a>
-                <a href="/about" class="nav-item hover:text-green-600 transition">About</a>
-                <button class="nav-item rounded-md p-3 py-2 bg-gray-200 hover:text-green-600 transition">Logout</button>
+                <button id="logout-btn" class="nav-item rounded-md p-3 py-2 bg-gray-200 hover:text-green-600 transition">Logout</button>
             </nav>
-
-            <!-- PROFILE NAME -->
-            <div id="profile-wrapper" class="flex items-center gap-2">
-                <span id="profile-name" class="font-bold cursor-pointer"></span>
-                <button id="logout-btn"
-                        class="hidden text-sm bg-red-500 hover:bg-red-600 ml-3 p-3 py-2 rounded-sm text-white">
-                    Logout
-                </button>
-            </div>
 
             <!-- MOBILE MENU BUTTON -->
             <button id="menu-btn" class="md:hidden text-white focus:outline-none">
@@ -55,10 +45,9 @@
     <!-- MOBILE DROPDOWN -->
     <div id="menu-dropdown" class="hidden md:hidden px-4 py-3 space-y-2">
 
-        <a href="/camera" class="mobile-item block py-2 text-black hover:text-green-600">Camera</a>
-        <a href="/about" class="mobile-item block py-2 text-black hover:text-green-600">About</a>
-        <button class="w-full nav-item rounded-md p-3 py-2 bg-gray-200 hover:text-green-600 transition">Logout</button>
+      <a href="/camera" class="mobile-item block py-2 text-black hover:text-green-600">Camera</a>
 
+      <button id="mobile-logout" class="mobile-item rounded-md p-3 py-2 bg-gray-200 hover:text-green-600 transition w-full">Logout</button>
     </div>
 </header>
 
@@ -66,11 +55,6 @@
 <main class="flex-grow p-4 md:p-6">
     {% block content %}{% endblock %}
 </main>
-
-<!-- FOOTER -->
-<footer class="text-center py-4 text-gray-600 text-sm md:text-base">
-    &copy; 2025 Computer Vision - Universitas Katolik Darma Cendika
-</footer>
 
 <!-- SCRIPT -->
 <script>
@@ -103,61 +87,45 @@
             navItems.forEach(item => item.classList.remove("hidden"));
             mobileItems.forEach(item => item.classList.remove("hidden"));
 
-            profileWrapper.classList.remove("hidden");
-
-            logoutBtn.classList.remove("hidden");
-
-            mobileProfile.textContent = "Hi, " + user;
-            mobileLogout.classList.remove("hidden");
-
         } else {
             // BELUM LOGIN
             navItems.forEach(item => item.classList.add("hidden"));
             mobileItems.forEach(item => item.classList.add("hidden"));
 
-            profileWrapper.classList.remove("hidden");
-
-            // reset + apply login style
-            profileName.textContent = "Login";
-            profileName.classList = "font-bold cursor-pointer hover:text-green-600 transition";
-            profileName.onclick = () => window.location.href = "/login";
-
-            mobileProfile.textContent = "Login";
-            mobileProfile.classList = "font-semibold cursor-pointer hover:text-green-600 transition";
-            mobileProfile.onclick = () => window.location.href = "/login";
+            const hamburg = document.getElementById("menu-btn");
+            hamburg.classList.add("hidden");
         }
     }
 
     // ======================================
     // LOGOUT BTN
     // ======================================
-    function logout() {
-        try {
-            const res = await fetch("/be/logout", {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/x-www-form-urlencoded"
-                },
-            }).then(res => res.json())
-                .then(data => {
-                    if (data.status == 0) {
-                        alert(data.message);
-                        return;
-                    }
-                    window.location.href = "/";
-                    localStorage.clear();
-                    updateNavbar();
-                });
+    async function logout() {
+        const res = await fetch("/be/logout", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/x-www-form-urlencoded"
+            },
+        });
 
-        } catch (err) {
-            alert("Terjadi error jaringan");
+        const data = await res.json();
+
+        if (data.status == 0) {
+            alert(data.message);
+            return;
         }
+
+        localStorage.clear();
+        updateNavbar();
+        window.location.href = "/";
+        return;
     }
 
-document.getElementById("logout-btn").onclick = logout;
-document.getElementById("mobile-logout").onclick = logout;
+    document.getElementById("logout-btn").onclick = logout;
+    document.getElementById("mobile-logout").onclick = logout;
 
-updateNavbar();
+
+    updateNavbar();
 </script>
 
 </body>
