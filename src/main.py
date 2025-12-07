@@ -11,8 +11,9 @@ app.secret_key = "INI KUNCI RAHASIA YANG TIDAK RAHASIA C4F3B4BE600DF00D"
 
 db = Database("db.sqlite")
 db.create_table_if_not_exist()
-
+"""
 db.query("INSERT INTO users (name, email, password) VALUES (?, ?, ?)", ("admin", "admin@admin.com", utils.hash_password("1234")))
+"""
 db.close()
 
 # --------------------
@@ -161,7 +162,7 @@ def be_logout():
         "message": "Logged out"
     })
 
-@app.rout('/be/add-whitelist', methods=["POST"])
+@app.route('/be/add-whitelist', methods=["POST"])
 def be_add_whitelist():
     logged_in = session.get("logged_in")
     if not logged_in:
@@ -220,6 +221,18 @@ def be_add_whitelist():
         "status": 1,
         "message": "File saved!"
     })
+
+@app.route('/be/del-whitelist', methods=["POST"])
+def be_del_whitelist():
+    logged_in = session.get("logged_in")
+    if not logged_in:
+        return jsonify({
+            "status": 0,
+            "message": "Need to be logged-in first."
+        })
+    userid = session.get("id")
+    targetdir = f"../{id}_whitelist"
+    os.mkdirs(targetdir, exist_ok=True)
 
 if __name__ == '__main__':
     app.run(debug=True)
