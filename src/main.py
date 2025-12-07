@@ -1,4 +1,4 @@
-from flask import Flask, render_template, session, redirect, request
+from flask import Flask, render_template, session, redirect, request, jsonify
 from connection import Database
 import utils
 import re
@@ -23,8 +23,10 @@ def index():
 # Camera Route
 @app.route('/camera', methods=['GET'])
 def camera():
-    if not session.get("logged_in"):
+    logged_in = session.get("logged_in")
+    if not logged_in:
         return redirect("/login")
+
     return render_template('camera.html')
 
 # About Route
@@ -35,7 +37,7 @@ def about():
 # Login Route
 @app.route('/login', methods=['GET'])
 def login():
-    if session.get("logged_in"):
+    if logged_in:
         return redirect("/camera")
     return render_template('login.html')
 
@@ -54,39 +56,66 @@ def register():
 @app.route('/be/login', methods=['POST'])
 def be_login():
     if session.get("logged_in"):
-        return redirect("/camera")
+        return jsonify({
+            "status": 0,
+            "message": "Already logged-in"
+        })
 
     email = request.form["email"]
     password = request.form["password"]
 
     if len(email) == 0:
-        return "Empty email is invalid"
+        return jsonify({
+            "status": 0,
+            "message": "Empty email is invalid"
+        })
 
     if len(password) == 0:
-        return "Empty password is invalid"
+        return jsonify({
+            "status": 0,
+            "message": "Empty email is invalid"
+        })
 
     if re.fullmatch(r"[^@]+@[^@]+\.[^@]+", email):
         db = Database("db.sqlite")
         out = db.query("SELECT * from users where email = ?", (email,), get_output=True)
         if len(out) == 0:
-            return "User is not registered"
+            return jsonify({
+                "status": 0,
+                "message": "User is not registered"
+            })
 
         row = out[0]
         db.close()
         if utils.verify_password(row["password"], password):
             session["logged_in"] = True
             session["user"] = row["name"]
-            return redirect("/camera")
+            return jsonify({
+                "status": 1,
+                "message": {
+                    "user": row["name"],
+                    "email": row["email"]
+                }
+            })
         else:
-            return "Wrong password for that email"
+            return jsonify({
+                "status": 0,
+                "message": "Wrong password for that email"
+            })
 
     else:
-        return "Wrong email format"
+        return jsonify({
+            "status": 0,
+            "message": "Wrong email format"
+        })
 
 @app.route('/be/register', methods=["POST"])
 def register():
     if session.get("logged_in"):
-        return redirect("/camera")
+        return jsonify({
+            "status": 0,
+            "message": "Already logged-in"
+        })
 
     username = request.form["username"]
     email = request.form["email"]
@@ -97,13 +126,19 @@ def register():
     db.close()
 
     if len(out) > 0:
-        return "The user already registered"
+        return jsonify({
+            "status": 0,
+            "message": "The user already registered"
+        })
 
     newpass = utils.hash_password(password)
     db = Database("db.sqlite")
     db.query("INSERT INTO users (name, email, password) VALUES (?, ?, ?)", (username, email, newpass))
     db.close()
-    return redirect("/login")
+    return jsonify({
+        "status": 1,
+        "message": "Registered"
+    })
 
 if __name__ == '__main__':
     app.run(debug=True)
