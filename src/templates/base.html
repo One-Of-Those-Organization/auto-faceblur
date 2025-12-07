@@ -11,15 +11,15 @@
 <body class="min-h-screen flex flex-col bg-gray-50">
 
 <!-- HEADER -->
-<header class="bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 text-white shadow-lg">
-    <div class="max-w-6xl mx-auto py-4 px-6 flex items-center justify-between">
+<header class="text-black shadow-lg">
+    <div class="max-w-6xl mx-auto py-4 px-4 flex items-center justify-between">
 
         <!-- LEFT: LOGO + TITLE -->
         <div class="flex items-center space-x-3">
-          <a href="/">
-            <img src="{{ url_for('static', filename='ukdc.png') }}" class="w-10 h-10 rounded shadow">
-            <h1 class="text-xl md:text-2xl font-bold whitespace-nowrap">Auto Face Blur</h1>
-          </a>
+            <a href="/" class="flex items-center space-x-3">
+                <img src="{{ url_for('static', filename='ukdc.png') }}" class="w-8 h-8 m-2">
+                <h1 class="text-xl md:text-2xl font-bold whitespace-nowrap">Auto Face Blur</h1>
+            </a>
         </div>
 
         <!-- RIGHT: NAV + PROFILE -->
@@ -27,16 +27,16 @@
 
             <!-- DESKTOP MENU -->
             <nav class="hidden md:flex gap-6 items-center">
-                <a href="/" class="nav-item hidden hover:text-yellow-300 transition">Home</a>
-                <a href="/camera" class="nav-item hidden hover:text-yellow-300 transition">Camera</a>
-                <a href="/about" class="nav-item hidden hover:text-yellow-300 transition">About</a>
+                <a href="/camera" class="nav-item hover:text-green-600 transition">Camera</a>
+                <a href="/about" class="nav-item hover:text-green-600 transition">About</a>
+                <button class="nav-item rounded-md p-3 py-2 bg-gray-200 hover:text-green-600 transition">Logout</button>
             </nav>
 
             <!-- PROFILE NAME -->
-            <div id="profile-wrapper" class="hidden md:flex items-center gap-2">
-                <span id="profile-name" class="font-bold"></span>
+            <div id="profile-wrapper" class="flex items-center gap-2">
+                <span id="profile-name" class="font-bold cursor-pointer"></span>
                 <button id="logout-btn"
-                        class="hidden text-sm bg-red-500 hover:bg-red-600 px-3 py-1 rounded-md">
+                        class="hidden text-sm bg-red-500 hover:bg-red-600 ml-3 p-3 py-2 rounded-sm text-white">
                     Logout
                 </button>
             </div>
@@ -44,7 +44,7 @@
             <!-- MOBILE MENU BUTTON -->
             <button id="menu-btn" class="md:hidden text-white focus:outline-none">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none"
-                     viewBox="0 0 24 24" stroke="currentColor">
+                     viewBox="0 0 24 24" stroke="black">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                           d="M4 6h16M4 12h16M4 18h16"/>
                 </svg>
@@ -53,20 +53,12 @@
     </div>
 
     <!-- MOBILE DROPDOWN -->
-    <div id="menu-dropdown" class="hidden md:hidden bg-purple-600 px-6 py-3 space-y-2">
+    <div id="menu-dropdown" class="hidden md:hidden px-4 py-3 space-y-2">
 
-        <a href="/" class="mobile-item hidden block py-2 text-white hover:text-yellow-300">Home</a>
-        <a href="/camera" class="mobile-item hidden block py-2 text-white hover:text-yellow-300">Camera</a>
-        <a href="/about" class="mobile-item hidden block py-2 text-white hover:text-yellow-300">About</a>
+        <a href="/camera" class="mobile-item block py-2 text-black hover:text-green-600">Camera</a>
+        <a href="/about" class="mobile-item block py-2 text-black hover:text-green-600">About</a>
+        <button class="w-full nav-item rounded-md p-3 py-2 bg-gray-200 hover:text-green-600 transition">Logout</button>
 
-        <div class="border-t border-purple-400 pt-2">
-            <span id="mobile-profile" class="font-semibold"></span>
-
-            <button id="mobile-logout"
-                    class="hidden mt-2 bg-red-500 hover:bg-red-600 px-3 py-1 rounded text-white text-sm">
-                Logout
-            </button>
-        </div>
     </div>
 </header>
 
@@ -94,8 +86,6 @@
     // ======================================
 
     function updateNavbar() {
-        // TODO: get if the user logged in or not from the python
-        //       just send the data to this using flask
         const user = localStorage.getItem("user");
 
         const navItems = document.querySelectorAll(".nav-item");
@@ -114,10 +104,10 @@
             mobileItems.forEach(item => item.classList.remove("hidden"));
 
             profileWrapper.classList.remove("hidden");
-            profileName.textContent = "Hi, " + user;
+
             logoutBtn.classList.remove("hidden");
 
-            mobileProfile.textContent = user;
+            mobileProfile.textContent = "Hi, " + user;
             mobileLogout.classList.remove("hidden");
 
         } else {
@@ -126,12 +116,14 @@
             mobileItems.forEach(item => item.classList.add("hidden"));
 
             profileWrapper.classList.remove("hidden");
-            profileName.textContent = "Please Login";
-            profileName.className = "text-white font-bold py-2 px-4 hover:text-yellow-300 transition";
+
+            // reset + apply login style
+            profileName.textContent = "Login";
+            profileName.classList = "font-bold cursor-pointer hover:text-green-600 transition";
             profileName.onclick = () => window.location.href = "/login";
 
-            mobileProfile.textContent = "Please Login";
-            profileName.className = "text-white font-bold py-2 px-4 hover:text-yellow-300 transition";
+            mobileProfile.textContent = "Login";
+            mobileProfile.classList = "font-semibold cursor-pointer hover:text-green-600 transition";
             mobileProfile.onclick = () => window.location.href = "/login";
         }
     }
@@ -140,15 +132,32 @@
     // LOGOUT BTN
     // ======================================
     function logout() {
-        localStorage.clear();
-        updateNavbar();
-        window.location.href = "/";  // balik ke home
+        try {
+            const res = await fetch("/be/logout", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/x-www-form-urlencoded"
+                },
+            }).then(res => res.json())
+                .then(data => {
+                    if (data.status == 0) {
+                        alert(data.message);
+                        return;
+                    }
+                    window.location.href = "/";
+                    localStorage.clear();
+                    updateNavbar();
+                });
+
+        } catch (err) {
+            alert("Terjadi error jaringan");
+        }
     }
 
-    document.getElementById("logout-btn").onclick = logout;
-    document.getElementById("mobile-logout").onclick = logout;
+document.getElementById("logout-btn").onclick = logout;
+document.getElementById("mobile-logout").onclick = logout;
 
-    updateNavbar();
+updateNavbar();
 </script>
 
 </body>

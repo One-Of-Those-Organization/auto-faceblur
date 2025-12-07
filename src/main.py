@@ -37,6 +37,7 @@ def about():
 # Login Route
 @app.route('/login', methods=['GET'])
 def login():
+    logged_in = session.get("logged_in")
     if logged_in:
         return redirect("/camera")
     return render_template('login.html')
@@ -138,6 +139,19 @@ def register():
     return jsonify({
         "status": 1,
         "message": "Registered"
+    })
+
+@app.route('/be/logout', methods=["POST"])
+def be_logout():
+    if no session.get("logged_in"):
+        return jsonify({
+            "status": 0,
+            "message": "Need to be logged-in first."
+        })
+    session.clear()
+    return jsonify({
+        "status": 1,
+        "message": "Logged out"
     })
 
 if __name__ == '__main__':

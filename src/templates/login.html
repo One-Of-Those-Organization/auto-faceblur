@@ -54,17 +54,16 @@ document.addEventListener("DOMContentLoaded", () => {
                     email,
                     password
                 })
-            });
-
-            // Jika login gagal → server mengembalikan plain text error
-            if (!res.redirected) {
-                const msg = await res.text();
-                alert(msg);
-                return;
-            }
-
-            // Jika login sukses → Flask redirect ke /camera
-            window.location.href = res.url;
+            }).then(res => res.json())
+              .then(data => {
+                  if (data.status == 0) {
+                      alert(data.message);
+                      return;
+                  }
+                  window.location.href = "/camera";
+                  localStorage.setItem("user", data.message.user);
+                  localStorage.setItem("email", data.message.email);
+              });
 
         } catch (err) {
             alert("Terjadi error jaringan");
