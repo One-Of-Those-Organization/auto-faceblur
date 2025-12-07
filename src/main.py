@@ -6,7 +6,11 @@ import re
 app = Flask(__name__)
 app.secret_key = "INI KUNCI RAHASIA YANG TIDAK RAHASIA C4F3B4BE600DF00D"
 
-db = Database()
+db = Database("db.sqlite")
+db.create_table_if_not_exist()
+
+db.query("INSERT INTO users (name, email, password) VALUES (?, ?, ?)", ("admin", "admin@admin.com", utils.hash_password("1234")))
+db.close()
 
 # --------------------
 # -- Frontend route --
@@ -49,6 +53,9 @@ def register():
 # -------------------
 @app.route('/be/login', methods=['POST'])
 def be_login():
+    if session.get("logged_in"):
+        return redirect("/camera")
+
     email = request.form["email"]
     password = request.form["password"]
 
@@ -59,11 +66,14 @@ def be_login():
         return "Empty password is invalid"
 
     if re.fullmatch(r"[^@]+@[^@]+\.[^@]+", email):
+        db = Database("db.sqlite")
         out = db.query("SELECT * from users where email = ?", (email,), get_output=True)
+        if len(out) == 0:
+            return "User is not registered"
+
         row = out[0]
-        if len(row) == 0:
-            return "That email is not registered"
-        if verify_password(row["password"], password):
+        db.close()
+        if utils.verify_password(row["password"], password):
             session["logged_in"] = True
             session["user"] = row["name"]
             return redirect("/camera")
@@ -82,13 +92,17 @@ def register():
     email = request.form["email"]
     password = request.form["password"]
 
+    db = Database("db.sqlite")
     out = db.query("SELECT * from users where email = ?", (email,), get_output=True)
+    db.close()
 
     if len(out) > 0:
         return "The user already registered"
 
     newpass = utils.hash_password(password)
+    db = Database("db.sqlite")
     db.query("INSERT INTO users (name, email, password) VALUES (?, ?, ?)", (username, email, newpass))
+    db.close()
     return redirect("/login")
 
 if __name__ == '__main__':

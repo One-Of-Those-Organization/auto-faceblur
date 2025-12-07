@@ -25,32 +25,52 @@
                 class="w-full bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition">
             Login
         </button>
-        <p class="mt-4">Tidak memiliki akun ? <a class="text-blue-600" href="register">Register disini</a></p>
+        <p class="mt-4">Tidak memiliki akun? <a class="text-blue-600" href="/register">Register disini</a></p>
     </div>
 </form>
 
 <script>
-    document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", () => {
+    const form = document.getElementById("login-form");
 
-        const form = document.getElementById("login-form");
-        if (!form) return;
+    form.addEventListener("submit", async (event) => {
+        event.preventDefault();
 
-        form.addEventListener("submit", (event) => {
-            event.preventDefault();
+        const email = document.getElementById("email").value.trim();
+        const password = document.getElementById("password").value.trim();
 
-            const email = document.getElementById("email").value.trim();
+        if (!email || !password) {
+            alert("Email dan password tidak boleh kosong");
+            return;
+        }
 
-            if (!email) {
-                alert("Email tidak boleh kosong");
+        try {
+            const res = await fetch("/be/login", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/x-www-form-urlencoded"
+                },
+                body: new URLSearchParams({
+                    email,
+                    password
+                })
+            });
+
+            // Jika login gagal → server mengembalikan plain text error
+            if (!res.redirected) {
+                const msg = await res.text();
+                alert(msg);
                 return;
             }
 
-            console.log("Saving user:", email);
-            localStorage.setItem("user", email);
+            // Jika login sukses → Flask redirect ke /camera
+            window.location.href = res.url;
 
-            window.location.href = "/camera";
-        });
+        } catch (err) {
+            alert("Terjadi error jaringan");
+        }
     });
+});
 </script>
 
 {% endblock %}

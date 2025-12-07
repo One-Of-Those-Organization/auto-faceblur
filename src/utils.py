@@ -10,7 +10,7 @@ def hash_password(password: str):
     )
     return salt + key
 
-def verify_password(stored: bytes, password: str):
+def verify_password(stored: str, password: str):
     salt = stored[:16]
     key = stored[16:]
     new_key = hashlib.pbkdf2_hmac(

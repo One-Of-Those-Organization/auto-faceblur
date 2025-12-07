@@ -16,8 +16,10 @@
 
         <!-- LEFT: LOGO + TITLE -->
         <div class="flex items-center space-x-3">
+          <a href="/">
             <img src="{{ url_for('static', filename='ukdc.png') }}" class="w-10 h-10 rounded shadow">
             <h1 class="text-xl md:text-2xl font-bold whitespace-nowrap">Auto Face Blur</h1>
+          </a>
         </div>
 
         <!-- RIGHT: NAV + PROFILE -->
@@ -92,6 +94,8 @@
     // ======================================
 
     function updateNavbar() {
+        // TODO: get if the user logged in or not from the python
+        //       just send the data to this using flask
         const user = localStorage.getItem("user");
 
         const navItems = document.querySelectorAll(".nav-item");

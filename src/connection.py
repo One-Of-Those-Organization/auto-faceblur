@@ -2,9 +2,9 @@ import sqlite3
 
 class Database:
     def __init__(self, path: str):
-        self.conn = sqlite3.connect('db.sqlite')
+        self.conn = sqlite3.connect(path)
         self.conn.row_factory = sqlite3.Row
-        self.cur = conn.cursor()
+        self.cur = self.conn.cursor()
 
     def create_table_if_not_exist(self):
         self.cur.execute("""
@@ -17,12 +17,12 @@ class Database:
         """)
         self.conn.commit()
 
-    def query(self, query: str, val: tuple[Any, ...] = (), get_output = False):
+    def query(self, query: str, val: tuple = (), get_output = False):
         self.cur.execute(query, val)
         self.conn.commit()
         if get_output:
             return self.cur.fetchall()
         return None
 
-    def close():
+    def close(self):
         self.conn.close()
