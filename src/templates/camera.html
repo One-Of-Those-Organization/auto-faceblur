@@ -1,8 +1,6 @@
 {% extends "base.html" %}
 
 {% block content %}
-<!-- TODO : INTEGRATE BACKEND PYTHON -->
-<!-- WRAPPER FIX AGAR TIDAK KORUP BASE.HTML -->
 <div class="w-full min-h-screen flex flex-col items-center justify-start py-10 bg-gray-50">
 
     <h1 class="text-3xl font-bold mb-2">Live Camera</h1>
@@ -15,13 +13,35 @@
         <video id="cameraFeed" autoplay playsinline class="w-full h-auto"></video>
     </div>
 
-    <!-- UPLOAD WHITELIST -->
-    <div class="w-full max-w-md mb-6">
-        <label class="block mb-2 font-semibold text-gray-700">Upload Whitelist (Gambar):</label>
-        <input id="whitelistInput" type="file" accept="image/*"
-               class="w-full px-4 py-3 border border-gray-300 rounded-xl bg-white shadow-sm cursor-pointer
-                      hover:border-blue-400 focus:ring-2 focus:ring-blue-500 transition">
-        <p id="whitelistStatus" class="text-sm text-gray-600 mt-2"></p>
+    <!-- WHITELIST MANAGER -->
+    <div class="w-full max-w-4xl bg-white border border-gray-200 rounded-xl shadow-sm p-4 mb-8">
+        <h2 class="text-xl font-semibold mb-3">Whitelist Manager</h2>
+
+        <div class="grid md:grid-cols-2 gap-4">
+            <!-- Upload -->
+            <div>
+                <label class="block mb-2 font-semibold text-gray-700">Upload Whitelist (Gambar)</label>
+                <input id="whitelistInput" type="file" accept="image/*"
+                       class="w-full px-4 py-3 border border-gray-300 rounded-xl bg-white shadow-sm cursor-pointer
+                              hover:border-blue-400 focus:ring-2 focus:ring-blue-500 transition">
+                <p id="whitelistStatus" class="text-sm text-gray-600 mt-2"></p>
+            </div>
+
+            <!-- List -->
+            <div>
+                <div class="flex items-center justify-between mb-2">
+                    <span class="font-semibold text-gray-700">Whitelist Files</span>
+                    <button id="refreshWhitelistBtn"
+                            class="text-sm px-3 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 border border-gray-200">
+                        Refresh
+                    </button>
+                </div>
+                <div id="whitelistList"
+                     class="grid sm:grid-cols-2 md:grid-cols-3 gap-3 max-h-72 overflow-y-auto border border-gray-200 rounded-lg p-2 bg-gray-50">
+                    <p class="text-gray-500 text-sm col-span-full">Memuat daftar whitelist...</p>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- CONTROL BUTTONS -->
@@ -78,20 +98,129 @@
 
     const whitelistInput = document.getElementById("whitelistInput");
     const whitelistStatus = document.getElementById("whitelistStatus");
+    const whitelistList = document.getElementById("whitelistList");
+    const refreshWhitelistBtn = document.getElementById("refreshWhitelistBtn");
+
+    // ---------- Whitelist helpers ----------
+    async function fileToBase64(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+        });
+    }
+
+    function renderWhitelist(files) {
+        whitelistList.innerHTML = "";
+        if (!files || files.length === 0) {
+            whitelistList.innerHTML = '<p class="text-gray-500 text-sm col-span-full">Belum ada file whitelist.</p>';
+            return;
+        }
+
+        files.forEach((f) => {
+            const card = document.createElement("div");
+            card.className = "bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden flex flex-col";
+
+            const img = document.createElement("img");
+            img.src = f.url;
+            img.alt = f.name;
+            img.className = "w-full h-28 object-cover bg-gray-100";
+
+            const meta = document.createElement("div");
+            meta.className = "px-3 py-2 flex items-center justify-between text-sm";
+            meta.innerHTML = `
+                <span class="truncate" title="${f.name}">${f.name}</span>
+                <button class="text-red-500 hover:text-red-600" data-fname="${f.name}">🗑</button>
+            `;
+
+            meta.querySelector("button").onclick = () => deleteWhitelist(f.name);
+
+            card.appendChild(img);
+            card.appendChild(meta);
+            whitelistList.appendChild(card);
+        });
+    }
+
+    async function fetchWhitelist() {
+        whitelistList.innerHTML = '<p class="text-gray-500 text-sm col-span-full">Memuat daftar whitelist...</p>';
+        try {
+            const res = await fetch("/be/list-whitelist");
+            const data = await res.json();
+            if (data.status === 1) {
+                renderWhitelist(data.files);
+            } else {
+                whitelistList.innerHTML = `<p class="text-red-500 text-sm col-span-full">${data.message || "Gagal memuat daftar."}</p>`;
+            }
+        } catch (e) {
+            whitelistList.innerHTML = `<p class="text-red-500 text-sm col-span-full">Error: ${e}</p>`;
+        }
+    }
+
+    async function uploadWhitelistFile(file) {
+        whitelistStatus.textContent = "Mengunggah...";
+        whitelistStatus.className = "text-sm text-gray-600 mt-2";
+
+        try {
+            const base64 = await fileToBase64(file);
+            const res = await fetch("/be/add-whitelist", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ image: base64 })
+            });
+            const data = await res.json();
+            if (data.status === 1) {
+                whitelistStatus.textContent = "Upload berhasil!";
+                whitelistStatus.classList.add("text-green-600");
+                await fetchWhitelist();
+            } else {
+                whitelistStatus.textContent = data.message || "Upload gagal.";
+                whitelistStatus.classList.add("text-red-500");
+            }
+        } catch (e) {
+            whitelistStatus.textContent = `Error: ${e}`;
+            whitelistStatus.classList.add("text-red-500");
+        }
+    }
+
+    async function deleteWhitelist(filename) {
+        const confirmDel = confirm(`Hapus file "${filename}"?`);
+        if (!confirmDel) return;
+
+        try {
+            const res = await fetch("/be/del-whitelist", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ filename })
+            });
+            const data = await res.json();
+            if (data.status === 1) {
+                await fetchWhitelist();
+            } else {
+                alert(data.message || "Gagal menghapus file.");
+            }
+        } catch (e) {
+            alert("Error: " + e);
+        }
+    }
 
     // Handle whitelist image upload
-    whitelistInput.addEventListener("change", () => {
+    whitelistInput.addEventListener("change", async () => {
         if (whitelistInput.files.length > 0) {
             whitelistStatus.textContent = "Gambar whitelist dipilih: " + whitelistInput.files[0].name;
             whitelistStatus.classList.remove("text-red-500");
             whitelistStatus.classList.add("text-green-600");
+            await uploadWhitelistFile(whitelistInput.files[0]); // auto-upload
+            whitelistInput.value = "";
         } else {
             whitelistStatus.textContent = "Belum ada file dipilih.";
             whitelistStatus.classList.add("text-red-500");
         }
     });
 
-    // Toggle Enable Camera Controls
+    refreshWhitelistBtn.onclick = fetchWhitelist;
+
+    // ---------- Camera controls ----------
     function enableControls() {
         captureBtn.disabled = false;
         recordBtn.disabled = false;
@@ -99,7 +228,6 @@
         recordBtn.classList.remove("opacity-40", "cursor-not-allowed");
     }
 
-    // Disable Disable Camera Controls
     function disableControls() {
         captureBtn.disabled = true;
         recordBtn.disabled = true;
@@ -197,6 +325,9 @@
             recordBtn.classList.add("bg-purple-500");
         }
     };
+
+    // Initial load
+    fetchWhitelist();
 </script>
 
 {% endblock %}

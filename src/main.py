@@ -1,4 +1,5 @@
-from flask import Flask, render_template, session, redirect, request, jsonify
+from flask import Flask, render_template, session, redirect, request, jsonify, url_for
+from werkzeug.utils import secure_filename
 from connection import Database
 import utils
 import os
@@ -15,6 +16,18 @@ db.create_table_if_not_exist()
 db.query("INSERT INTO users (name, email, password) VALUES (?, ?, ?)", ("admin", "admin@admin.com", utils.hash_password("1234")))
 """
 db.close()
+
+
+def get_user_whitelist_dir(user_id: int) -> str:
+    """Return absolute path for a user's whitelist folder inside static."""
+    return os.path.join(app.static_folder, "whitelist", str(user_id))
+
+
+def ensure_user_whitelist_dir(user_id: int) -> str:
+    path = get_user_whitelist_dir(user_id)
+    os.makedirs(path, exist_ok=True)
+    return path
+
 
 # --------------------
 # -- Frontend route --
@@ -170,14 +183,16 @@ def be_add_whitelist():
             "status": 0,
             "message": "Need to be logged-in first."
         })
-    userid = session.get("id")
-    targetdir = f"../{id}_whitelist"
-    os.mkdirs(targetdir, exist_ok=True)
+
+    user_id = session.get("id")
+    targetdir = ensure_user_whitelist_dir(user_id)
+
     if not request.is_json:
         return jsonify({
             "status": 0,
             "message": "Body need to be at JSON format."
         })
+
     try:
         data = request.get_json()
     except Exception as e:
@@ -186,7 +201,7 @@ def be_add_whitelist():
             "message": f"error parsing the body because: {e}."
         })
 
-    imgdata = data.get("image")
+    imgdata = data.get("image", "")
     if len(imgdata) == 0:
         return jsonify({
             "status": 0,
@@ -201,7 +216,7 @@ def be_add_whitelist():
         extension = extension_match.group(1) if extension_match else 'png'
     else:
         encoded_data = imgdata
-        extension = 'png' # Default extension if header is missing
+        extension = 'png'  # Default extension if header is missing
 
     try:
         image_bytes = base64.b64decode(encoded_data)
@@ -212,14 +227,19 @@ def be_add_whitelist():
             "message": "Failed to decode the base64 string."
         })
 
-    current = time.time()
-    filename = f"{id}_{int(time)}.{extension}"
+    current = int(time.time())
+    filename = f"{user_id}_{current}.{extension}"
     filepath = os.path.join(targetdir, filename)
     with open(filepath, 'wb') as f:
         f.write(image_bytes)
+
     return jsonify({
         "status": 1,
-        "message": "File saved!"
+        "message": "File saved!",
+        "file": {
+            "name": filename,
+            "url": url_for('static', filename=f"whitelist/{user_id}/{filename}", _external=False)
+        }
     })
 
 @app.route('/be/del-whitelist', methods=["POST"])
@@ -230,9 +250,78 @@ def be_del_whitelist():
             "status": 0,
             "message": "Need to be logged-in first."
         })
-    userid = session.get("id")
-    targetdir = f"../{id}_whitelist"
-    os.mkdirs(targetdir, exist_ok=True)
+
+    user_id = session.get("id")
+    targetdir = ensure_user_whitelist_dir(user_id)
+
+    if not request.is_json:
+        return jsonify({
+            "status": 0,
+            "message": "Body need to be at JSON format."
+        })
+
+    data = request.get_json()
+    filename = secure_filename(data.get("filename", ""))
+
+    if not filename:
+        return jsonify({
+            "status": 0,
+            "message": "Filename is required."
+        })
+
+    filepath = os.path.join(targetdir, filename)
+    # Prevent path traversal
+    if os.path.commonpath([os.path.abspath(filepath), os.path.abspath(targetdir)]) != os.path.abspath(targetdir):
+        return jsonify({
+            "status": 0,
+            "message": "Invalid filename."
+        })
+
+    if not os.path.exists(filepath):
+        return jsonify({
+            "status": 0,
+            "message": "File not found."
+        })
+
+    try:
+        os.remove(filepath)
+    except Exception as e:
+        return jsonify({
+            "status": 0,
+            "message": f"Failed to delete file: {e}"
+        })
+
+    return jsonify({
+        "status": 1,
+        "message": "File deleted."
+    })
+
+@app.route('/be/list-whitelist', methods=["GET"])
+def be_list_whitelist():
+    logged_in = session.get("logged_in")
+    if not logged_in:
+        return jsonify({
+            "status": 0,
+            "message": "Need to be logged-in first."
+        })
+
+    user_id = session.get("id")
+    targetdir = ensure_user_whitelist_dir(user_id)
+
+    files = []
+    for fname in sorted(os.listdir(targetdir)):
+        fpath = os.path.join(targetdir, fname)
+        if os.path.isfile(fpath):
+            files.append({
+                "name": fname,
+                "url": url_for('static', filename=f"whitelist/{user_id}/{fname}", _external=False),
+                "modified": int(os.path.getmtime(fpath))
+            })
+
+    return jsonify({
+        "status": 1,
+        "files": files
+    })
 
 if __name__ == '__main__':
     app.run(debug=True)
