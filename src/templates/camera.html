@@ -11,7 +11,7 @@
     <!-- CAMERA FRAME -->
     <div class="w-full max-w-md bg-black rounded-xl shadow-lg overflow-hidden mb-6">
         <video id="cameraFeed" autoplay playsinline muted class="w-full h-auto"></video>
-        <video id="remoteCamera" autoplay playsinline class="w-full h-auto hidden"></video>
+        <canvas id="processedCanvas" class="w-full h-auto hidden"></canvas>
     </div>
 
     <!-- WHITELIST MANAGER -->
@@ -54,20 +54,6 @@
             Start Camera
         </button>
 
-        <!-- Take Photo -->
-        <!-- <button id="captureBtn" -->
-        <!--         class="w-full bg-blue-500 text-white font-semibold py-3 rounded-xl transition opacity-40 cursor-not-allowed" -->
-        <!--         disabled> -->
-        <!--     Take Photo -->
-        <!-- </button> -->
-
-        <!-- Record Video -->
-        <!-- <button id="recordBtn" -->
-        <!--         class="w-full bg-purple-500 text-white font-semibold py-3 rounded-xl transition opacity-40 cursor-not-allowed" -->
-        <!--         disabled> -->
-        <!--     Start Recording -->
-        <!-- </button> -->
-
     </div>
 
     <!-- SNAPSHOT RESULT -->
@@ -81,22 +67,27 @@
         ⬇ Download File
     </a>
 
+    <!-- Connection Status -->
+    <p id="connectionStatus" class="text-sm text-gray-500 mt-4"></p>
+
 </div>
 
 <script>
     let stream = null;
-    let mediaRecorder = null;
-    let chunks = [];
-    let recording = false;
-    let pc = null;
+    let ws = null;
+    let sendingFrames = false;
+    let frameInterval = null;
+
+    const MAX_FPS = 30;
+    const FRAME_INTERVAL_MS = 1000 / MAX_FPS; // ~33ms between frames
 
     const video = document.getElementById("cameraFeed");
-    const canvas = document.getElementById("snapshotCanvas");
+    const processedCanvas = document.getElementById("processedCanvas");
+    const snapshotCanvas = document.getElementById("snapshotCanvas");
     const downloadLink = document.getElementById("downloadLink");
+    const connectionStatus = document.getElementById("connectionStatus");
 
     const startBtn = document.getElementById("startBtn");
-    // const captureBtn = document.getElementById("captureBtn");
-    // const recordBtn = document.getElementById("recordBtn");
 
     const whitelistInput = document.getElementById("whitelistInput");
     const whitelistStatus = document.getElementById("whitelistStatus");
@@ -115,7 +106,7 @@
 
     function renderWhitelist(files) {
         whitelistList.innerHTML = "";
-        if (!files || files.length === 0) {
+        if (! files || files.length === 0) {
             whitelistList.innerHTML = '<p class="text-gray-500 text-sm col-span-full">Belum ada file whitelist.</p>';
             return;
         }
@@ -186,7 +177,7 @@
     }
 
     async function deleteWhitelist(filename) {
-        const confirmDel = confirm(`Hapus file "${filename}"?`);
+        const confirmDel = confirm(`Hapus file "${filename}"? `);
         if (!confirmDel) return;
 
         try {
@@ -222,170 +213,146 @@
 
     refreshWhitelistBtn.onclick = fetchWhitelist;
 
-    // ---------- Camera controls ----------
-    /*
-    function enableControls() {
-        captureBtn.disabled = false;
-        recordBtn.disabled = false;
-        captureBtn.classList.remove("opacity-40", "cursor-not-allowed");
-        recordBtn.classList.remove("opacity-40", "cursor-not-allowed");
+    // ---------- WebSocket Camera Controls ----------
+
+    function getWebSocketUrl() {
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        return `${protocol}//${window.location.host}/ws/camera`;
     }
 
-    function disableControls() {
-        captureBtn.disabled = true;
-        recordBtn.disabled = true;
-        captureBtn.classList.add("opacity-40", "cursor-not-allowed");
-        recordBtn.classList.add("opacity-40", "cursor-not-allowed");
+    function connectWebSocket() {
+        return new Promise((resolve, reject) => {
+            const wsUrl = getWebSocketUrl();
+            ws = new WebSocket(wsUrl);
+
+            ws.onopen = () => {
+                console.log("WebSocket connected");
+                connectionStatus.textContent = "Connected to server";
+                connectionStatus.className = "text-sm text-green-600 mt-4";
+                resolve();
+            };
+
+            ws.onmessage = (event) => {
+                // Received processed frame from server
+                const img = new Image();
+                img.onload = () => {
+                    const ctx = processedCanvas.getContext("2d");
+                    processedCanvas.width = img.width;
+                    processedCanvas.height = img.height;
+                    ctx.drawImage(img, 0, 0);
+                };
+                img.src = event.data;
+            };
+
+            ws.onerror = (error) => {
+                console.error("WebSocket error:", error);
+                connectionStatus.textContent = "Connection error";
+                connectionStatus.className = "text-sm text-red-500 mt-4";
+                reject(error);
+            };
+
+            ws.onclose = () => {
+                console.log("WebSocket closed");
+                connectionStatus.textContent = "Disconnected from server";
+                connectionStatus.className = "text-sm text-gray-500 mt-4";
+                stopSendingFrames();
+            };
+        });
     }
-    */
 
-    // START CAMERA
-async function startCamera() {
-        try {
-            stream = await navigator.mediaDevices.getUserMedia({video: true});
-            video.srcObject = stream;
+    function startSendingFrames() {
+        if (sendingFrames) return;
+        sendingFrames = true;
 
-            pc = new RTCPeerConnection({iceServers: [
-                { urls: ["stun:stun.l.google.com:19302"] },
-                {
-                    urls: [
-                        "turn:openrelay.metered.ca:80",
-                        "turn:openrelay.metered.ca:443",
-                        "turn:openrelay.metered.ca:443?transport=tcp"
-                    ],
-                    username: "openrelayproject",
-                    credential: "openrelayproject"
-                }
-            ]});
+        const tempCanvas = document.createElement("canvas");
+        const tempCtx = tempCanvas.getContext("2d");
 
-            stream.getTracks().forEach(track => pc.addTrack(track, stream));
-            pc.ontrack = (event) => {
-                const remote = document.getElementById("remoteCamera");
-                if (remote) {
-                    remote.srcObject = event.streams[0];
-                    remote.classList.remove("hidden");
-                }
-            };
-            pc.onconnectionstatechange = () => {
-                console.log("STATE:", pc.connectionState);
-
-                if (["disconnected", "failed", "closed"].includes(pc.connectionState)) {
-                    pc.close();
-                }
-            };
-
-            const offer = await pc.createOffer();
-            await pc.setLocalDescription(offer);
-
-            const response = await fetch('/offer', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    sdp: pc.localDescription.sdp,
-                    type: pc.localDescription.type
-                })
-            });
-
-            if (response.status === 401) {
-                alert("Session expired. Please login again.");
-                window.location.href = "/login";
+        frameInterval = setInterval(() => {
+            if (! ws || ws.readyState !== WebSocket.OPEN || ! stream) {
                 return;
             }
 
-            const answer = await response.json();
-            await pc.setRemoteDescription(answer);
+            // Capture frame from video
+            tempCanvas.width = video.videoWidth;
+            tempCanvas.height = video.videoHeight;
+            tempCtx.drawImage(video, 0, 0);
+
+            // Convert to base64 JPEG and send
+            const frameData = tempCanvas.toDataURL("image/jpeg", 0.8);
+            ws.send(frameData);
+        }, FRAME_INTERVAL_MS);
+    }
+
+    function stopSendingFrames() {
+        sendingFrames = false;
+        if (frameInterval) {
+            clearInterval(frameInterval);
+            frameInterval = null;
+        }
+    }
+
+    // START CAMERA
+    async function startCamera() {
+        try {
+            // Get camera stream
+            stream = await navigator. mediaDevices.getUserMedia({ video: true });
+            video.srcObject = stream;
+
+            // Wait for video to be ready
+            await new Promise((resolve) => {
+                video.onloadedmetadata = resolve;
+            });
+
+            // Connect WebSocket
+            await connectWebSocket();
+
+            // Show processed canvas, hide video (optional: show both for comparison)
+            processedCanvas.classList.remove("hidden");
+
+            // Start sending frames to server
+            startSendingFrames();
 
             startBtn.textContent = "Stop Camera";
             startBtn.classList.remove("bg-green-500");
             startBtn.classList.add("bg-red-500");
         } catch (e) {
             alert("Tidak bisa membuka kamera: " + e);
+            console.error(e);
         }
     }
 
     // STOP CAMERA
     function stopCamera() {
+        // Stop sending frames
+        stopSendingFrames();
+
+        // Close WebSocket
+        if (ws) {
+            ws.close();
+            ws = null;
+        }
+
+        // Stop camera stream
         if (stream) {
             stream.getTracks().forEach(t => t.stop());
             stream = null;
         }
-        if (pc) {
-            pc.getSenders().forEach(s => {
-                try { if (s.track) s.track.stop(); } catch (_e) {}
-            });
-            pc.close();
-            pc = null;
-        }
 
         video.srcObject = null;
+        processedCanvas.classList.add("hidden");
 
         startBtn.textContent = "Start Camera";
         startBtn.classList.remove("bg-red-500");
         startBtn.classList.add("bg-green-500");
 
-        // disableControls();
+        connectionStatus.textContent = "";
     }
 
-    // BUTTON EVENTS (TOGGLE CAMERA, TAKE PHOTO, RECORD VIDEO)
+    // BUTTON EVENTS
     startBtn.onclick = () => {
         if (!stream) startCamera();
         else stopCamera();
     };
-
-    // TAKE PHOTO
-  /*
-    captureBtn.onclick = () => {
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        const ctx = canvas.getContext("2d");
-        ctx.drawImage(video, 0, 0);
-
-        canvas.classList.remove("hidden");
-
-        canvas.toBlob((blob) => {
-            const url = URL.createObjectURL(blob);
-            downloadLink.href = url;
-            downloadLink.download = "photo.png";
-            downloadLink.textContent = "⬇ Download Photo";
-            downloadLink.classList.remove("hidden");
-        });
-    };
-
-    // RECORD VIDEO
-    recordBtn.onclick = () => {
-        if (!recording) {
-            mediaRecorder = new MediaRecorder(stream);
-            chunks = [];
-
-            mediaRecorder.ondataavailable = e => chunks.push(e.data);
-
-            mediaRecorder.onstop = () => {
-                const blob = new Blob(chunks, {type: "video/webm"});
-                const url = URL.createObjectURL(blob);
-
-                downloadLink.href = url;
-                downloadLink.download = "video.webm";
-                downloadLink.textContent = "⬇ Download Video";
-                downloadLink.classList.remove("hidden");
-            };
-
-            mediaRecorder.start();
-            recording = true;
-
-            recordBtn.textContent = "Stop Recording";
-            recordBtn.classList.remove("bg-purple-500");
-            recordBtn.classList.add("bg-red-500");
-
-        } else {
-            mediaRecorder.stop();
-            recording = false;
-
-            recordBtn.textContent = "Start Recording";
-            recordBtn.classList.remove("bg-red-500");
-            recordBtn.classList.add("bg-purple-500");
-        }
-    };
-    */
 
     // Initial load
     fetchWhitelist();
