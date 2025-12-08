@@ -5,7 +5,7 @@
 
     <h1 class="text-3xl font-bold mb-2">Live Camera</h1>
     <p class="text-gray-600 text-center max-w-md mb-6">
-        Izinkan akses kamera untuk memulai. Setelah kamera aktif, Anda bisa mengambil foto atau merekam video.
+        Izinkan akses kamera untuk memulai.  Setelah kamera aktif, Anda bisa mengambil foto atau merekam video.
     </p>
 
     <!-- CAMERA FRAME -->
@@ -77,9 +77,10 @@
     let ws = null;
     let sendingFrames = false;
     let frameInterval = null;
+    let authenticated = false;
 
     const MAX_FPS = 30;
-    const FRAME_INTERVAL_MS = 1000 / MAX_FPS; // ~33ms between frames
+    const FRAME_INTERVAL_MS = 1000 / MAX_FPS;
 
     const video = document.getElementById("cameraFeed");
     const processedCanvas = document.getElementById("processedCanvas");
@@ -90,7 +91,7 @@
     const startBtn = document.getElementById("startBtn");
 
     const whitelistInput = document.getElementById("whitelistInput");
-    const whitelistStatus = document.getElementById("whitelistStatus");
+    const whitelistStatus = document. getElementById("whitelistStatus");
     const whitelistList = document.getElementById("whitelistList");
     const refreshWhitelistBtn = document.getElementById("refreshWhitelistBtn");
 
@@ -107,7 +108,7 @@
     function renderWhitelist(files) {
         whitelistList.innerHTML = "";
         if (! files || files.length === 0) {
-            whitelistList.innerHTML = '<p class="text-gray-500 text-sm col-span-full">Belum ada file whitelist.</p>';
+            whitelistList.innerHTML = '<p class="text-gray-500 text-sm col-span-full">Belum ada file whitelist. </p>';
             return;
         }
 
@@ -151,8 +152,8 @@
     }
 
     async function uploadWhitelistFile(file) {
-        whitelistStatus.textContent = "Mengunggah...";
-        whitelistStatus.className = "text-sm text-gray-600 mt-2";
+        whitelistStatus.textContent = "Mengunggah... ";
+        whitelistStatus. className = "text-sm text-gray-600 mt-2";
 
         try {
             const base64 = await fileToBase64(file);
@@ -177,7 +178,7 @@
     }
 
     async function deleteWhitelist(filename) {
-        const confirmDel = confirm(`Hapus file "${filename}"? `);
+        const confirmDel = confirm(`Hapus file "${filename}"?`);
         if (!confirmDel) return;
 
         try {
@@ -190,7 +191,7 @@
             if (data.status === 1) {
                 await fetchWhitelist();
             } else {
-                alert(data.message || "Gagal menghapus file.");
+                alert(data. message || "Gagal menghapus file.");
             }
         } catch (e) {
             alert("Error: " + e);
@@ -198,12 +199,12 @@
     }
 
     // Handle whitelist image upload
-    whitelistInput.addEventListener("change", async () => {
-        if (whitelistInput.files.length > 0) {
+    whitelistInput. addEventListener("change", async () => {
+        if (whitelistInput.files. length > 0) {
             whitelistStatus.textContent = "Gambar whitelist dipilih: " + whitelistInput.files[0].name;
             whitelistStatus.classList.remove("text-red-500");
-            whitelistStatus.classList.add("text-green-600");
-            await uploadWhitelistFile(whitelistInput.files[0]); // auto-upload
+            whitelistStatus.classList. add("text-green-600");
+            await uploadWhitelistFile(whitelistInput.files[0]);
             whitelistInput.value = "";
         } else {
             whitelistStatus.textContent = "Belum ada file dipilih.";
@@ -220,43 +221,97 @@
         return `${protocol}//${window.location.host}/ws/camera`;
     }
 
-    function connectWebSocket() {
-        return new Promise((resolve, reject) => {
-            const wsUrl = getWebSocketUrl();
-            ws = new WebSocket(wsUrl);
-
-            ws.onopen = () => {
-                console.log("WebSocket connected");
-                connectionStatus.textContent = "Connected to server";
-                connectionStatus.className = "text-sm text-green-600 mt-4";
-                resolve();
-            };
-
-            ws.onmessage = (event) => {
-                // Received processed frame from server
-                const img = new Image();
-                img.onload = () => {
-                    const ctx = processedCanvas.getContext("2d");
-                    processedCanvas.width = img.width;
-                    processedCanvas.height = img.height;
-                    ctx.drawImage(img, 0, 0);
-                };
-                img.src = event.data;
-            };
-
-            ws.onerror = (error) => {
-                console.error("WebSocket error:", error);
-                connectionStatus.textContent = "Connection error";
-                connectionStatus.className = "text-sm text-red-500 mt-4";
-                reject(error);
-            };
-
-            ws.onclose = () => {
-                console.log("WebSocket closed");
-                connectionStatus.textContent = "Disconnected from server";
+    async function connectWebSocket() {
+        return new Promise(async (resolve, reject) => {
+            try {
+                // Step 1: Get auth token from server
+                connectionStatus.textContent = "Getting auth token...";
                 connectionStatus.className = "text-sm text-gray-500 mt-4";
-                stopSendingFrames();
-            };
+
+                const tokenRes = await fetch('/be/ws-token', { method: 'POST' });
+                const tokenData = await tokenRes.json();
+
+                if (tokenData.status !== 1) {
+                    connectionStatus.textContent = "Failed to get token. Please login again.";
+                    connectionStatus. className = "text-sm text-red-500 mt-4";
+                    setTimeout(() => { window.location.href = "/login"; }, 2000);
+                    reject(new Error("Failed to get WebSocket token"));
+                    return;
+                }
+
+                // Step 2: Connect WebSocket
+                connectionStatus.textContent = "Connecting... ";
+                const wsUrl = getWebSocketUrl();
+                ws = new WebSocket(wsUrl);
+
+                ws.onopen = () => {
+                    console.log("WebSocket connected, sending auth token...");
+                    connectionStatus.textContent = "Authenticating...";
+                    // Send token as first message
+                    ws.send(tokenData.token);
+                };
+
+                ws.onmessage = (event) => {
+                    const data = event.data;
+
+                    // Handle auth response
+                    if (data === "auth:ok") {
+                        console.log("WebSocket authenticated!");
+                        authenticated = true;
+                        connectionStatus.textContent = "Connected";
+                        connectionStatus.className = "text-sm text-green-600 mt-4";
+                        resolve();
+                        return;
+                    }
+
+                    // Handle auth errors
+                    if (data. startsWith("error:")) {
+                        const errorType = data.split(":")[1];
+                        console.error("WebSocket error:", errorType);
+                        connectionStatus. textContent = "Auth failed: " + errorType;
+                        connectionStatus. className = "text-sm text-red-500 mt-4";
+
+                        if (errorType === "unauthorized" || errorType === "no_token") {
+                            alert("Session expired. Please login again.");
+                            window.location.href = "/login";
+                        }
+                        reject(new Error(errorType));
+                        return;
+                    }
+
+                    // Handle processed frame (only after authenticated)
+                    if (authenticated && data.startsWith("data:image")) {
+                        const img = new Image();
+                        img.onload = () => {
+                            const ctx = processedCanvas.getContext("2d");
+                            processedCanvas.width = img.width;
+                            processedCanvas. height = img.height;
+                            ctx.drawImage(img, 0, 0);
+                        };
+                        img.src = data;
+                    }
+                };
+
+                ws.onerror = (error) => {
+                    console.error("WebSocket error:", error);
+                    connectionStatus.textContent = "Connection error";
+                    connectionStatus.className = "text-sm text-red-500 mt-4";
+                    reject(error);
+                };
+
+                ws. onclose = () => {
+                    console.log("WebSocket closed");
+                    authenticated = false;
+                    connectionStatus.textContent = "Disconnected";
+                    connectionStatus.className = "text-sm text-gray-500 mt-4";
+                    stopSendingFrames();
+                };
+
+            } catch (e) {
+                connectionStatus.textContent = "Connection failed: " + e.message;
+                connectionStatus.className = "text-sm text-red-500 mt-4";
+                reject(e);
+            }
         });
     }
 
@@ -268,7 +323,7 @@
         const tempCtx = tempCanvas.getContext("2d");
 
         frameInterval = setInterval(() => {
-            if (! ws || ws.readyState !== WebSocket.OPEN || ! stream) {
+            if (! ws || ws.readyState !== WebSocket. OPEN || ! stream || ! authenticated) {
                 return;
             }
 
@@ -296,20 +351,20 @@
         try {
             // Get camera stream
             stream = await navigator. mediaDevices.getUserMedia({ video: true });
-            video.srcObject = stream;
+            video. srcObject = stream;
 
             // Wait for video to be ready
             await new Promise((resolve) => {
-                video.onloadedmetadata = resolve;
+                video. onloadedmetadata = resolve;
             });
 
-            // Connect WebSocket
+            // Connect WebSocket with token auth
             await connectWebSocket();
 
-            // Show processed canvas, hide video (optional: show both for comparison)
+            // Show processed canvas
             processedCanvas.classList.remove("hidden");
 
-            // Start sending frames to server
+            // Start sending frames
             startSendingFrames();
 
             startBtn.textContent = "Stop Camera";
@@ -323,26 +378,24 @@
 
     // STOP CAMERA
     function stopCamera() {
-        // Stop sending frames
         stopSendingFrames();
 
-        // Close WebSocket
         if (ws) {
-            ws.close();
+            ws. close();
             ws = null;
         }
 
-        // Stop camera stream
         if (stream) {
             stream.getTracks().forEach(t => t.stop());
             stream = null;
         }
 
+        authenticated = false;
         video.srcObject = null;
         processedCanvas.classList.add("hidden");
 
         startBtn.textContent = "Start Camera";
-        startBtn.classList.remove("bg-red-500");
+        startBtn. classList.remove("bg-red-500");
         startBtn.classList.add("bg-green-500");
 
         connectionStatus.textContent = "";
