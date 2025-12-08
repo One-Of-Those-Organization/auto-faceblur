@@ -1,270 +1,297 @@
 #!/usr/bin/env python3
-# ============================================================
-# AUTO FACE BLUR SYSTEM USING YOLO + DEEPFACE
-# ============================================================
 """
-High-level Overview:
-Program ini mendeteksi wajah secara real-time menggunakan YOLOv8 dan membandingkan
-embedding wajah menggunakan DeepFace (Facenet512). Wajah yang tidak masuk whitelist
-akan diblur secara otomatis.
-
-Fitur utama:
-1. Deteksi wajah real-time (YOLO)
-2. Pengenalan wajah / whitelist (DeepFace)
-3. Blur wajah yang tidak dikenal
-4. Tracking sederhana untuk mengurangi pemanggilan DeepFace tiap frame
-5. Logging distance dan status whitelist untuk debugging
+Auto Face Blur - Multi-Model Architecture
+Fitur:
+1. Deteksi: SELALU YOLOv11
+2. Vektorisasi: Bisa pilih banyak (Stacked: YOLO, FaceNet, ArcFace, VGG)
+3. Toggle CPU/GPU
 """
 
-# ============================================================
-# IMPORT LIBRARIES
-# ============================================================
 import os
+import subprocess
+import time
+
 import cv2
 import numpy as np
-from deepface import DeepFace
-import math
-import time
+import torch
 from ultralytics import YOLO
-import tensorflow as tf
 
 # ============================================================
-# CONFIGURATION SECTION
+# 1. KONFIGURASI MODEL (PILIH SALAH SATU)
 # ============================================================
-SKIP_FRAMES = 30           # Interval frame untuk pengenalan wajah (DeepFace)
-THRESHOLD = 0.40           # Batas kemiripan embedding wajah (cosine distance)
-INPUT_RES = (640, 480)     # Resolusi input kamera
-USE_GPU = False            # Gunakan GPU jika tersedia (False apabila tidak ada GPU)
+# Pilihan: "yolo_backbone", "facenet", "arcface", "vgg"
 
-# ============================================================
-# HARDWARE & CUDA SETUP
-# ============================================================
-base_dir = os.path.dirname(os.path.abspath(__file__))
-cuda_fix_path = os.path.join(base_dir, "cuda_fix")
+SELECTED_MODEL = "vgg"  # <--- Sedang pakai ARCFACE
 
-# Setup environment variable untuk TensorFlow / CUDA
-os.environ['XLA_FLAGS'] = f"--xla_gpu_cuda_data_dir={cuda_fix_path}"
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'   # Sembunyikan warning TF
+# Config Lain
+SKIP_FRAMES = 1
+THRESHOLD = 0.50
+INPUT_RES = (640, 480)
+WHITELIST_DIR = "../whitelist/"
+COLOR_KNOWN = (0, 255, 0)
+COLOR_UNKNOWN = (0, 0, 255)
 
-# Nonaktifkan GPU jika USE_GPU = False
-if not USE_GPU:
-    os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
-    print("INFO: Mode CPU Selected.")
-else:
-    # Setup memory growth untuk GPU
-    gpus = tf.config.list_physical_devices('GPU')
-    if gpus:
-        try:
-            for gpu in gpus:
-                tf.config.experimental.set_memory_growth(gpu, True)
-        except RuntimeError as e:
-            print(e)
 
 # ============================================================
-# LOAD YOLO MODEL
+# 2. CEK HARDWARE
 # ============================================================
-print("INFO: Loading YOLO...")
-model = YOLO("../model/model.pt")      # Ganti dengan path model custom YOLO
-
-# Tentukan device YOLO
-if USE_GPU:
-    model.to('cuda')
-    DEVICE_TARGET = 0
-    print("INFO: YOLO running on GPU")
-else:
-    model.to('cpu')
-    DEVICE_TARGET = 'cpu'
-    print("INFO: YOLO running on CPU")
-
-# ============================================================
-# LOAD WHITELIST
-# ============================================================
-print("INFO: Memuat whitelist...")
-whitelist_path = "../whitelist/"
-target_embeddings = []
-
-# Buat folder whitelist jika belum ada
-if not os.path.exists(whitelist_path):
-    os.makedirs(whitelist_path)
-
-# Ambil semua file di folder whitelist
-files = [os.path.join(whitelist_path, f) for f in os.listdir(whitelist_path)
-         if os.path.isfile(os.path.join(whitelist_path, f))]
-
-# Generate embedding tiap foto whitelist
-for img_path in files:
+def get_cpu_name():
     try:
-        emb = DeepFace.represent(
-            img_path=img_path,
-            model_name="Facenet512",
-            enforce_detection=True
-        )
-        if emb:
-            target_embeddings.append(emb[0]["embedding"])
-            print(f"  + Loaded: {os.path.basename(img_path)}")
-    except Exception as e:
-        print(f"  - Gagal load {img_path}: {e}")
+        return subprocess.check_output("cat /proc/cpuinfo | grep 'model name' | uniq | cut -d: -f2",
+                                       shell=True).decode().strip()
+    except:
+        return "Unknown CPU"
 
-# Konversi list ke numpy array agar cepat diolah
-target_embeddings = np.array(target_embeddings)
+
+HAS_CUDA = torch.cuda.is_available()
+print(f"[*] Mode: {SELECTED_MODEL.upper()}")
+print(f"[*] CPU : {get_cpu_name()}")
+print(f"[*] GPU : {torch.cuda.get_device_name(0) if HAS_CUDA else 'None'}")
 
 # ============================================================
-# HELPER FUNCTIONS
+# 3. LOAD MODEL (STACKING AREA)
 # ============================================================
+print("\nINFO: Memuat Model...")
+try:
+    dev_name = "cuda" if HAS_CUDA else "cpu"
+    device = torch.device(dev_name)
 
+    # --- A. MODEL DETEKSI (TETAP) ---
+    model_detector = YOLO("../model/model.pt")
+    model_detector.to(device)
+    print(f"  + Detektor YOLOv11 Loaded")
+
+    # --- B. MODEL VEKTORISASI (STACKED) ---
+    model_recognizer = None
+
+    # [OPSI 1] FaceNet (Pytorch)
+    if SELECTED_MODEL == "facenet":
+        try:
+            from facenet_pytorch import InceptionResnetV1
+
+            model_recognizer = InceptionResnetV1(pretrained='vggface2', classify=False).to(device)
+            model_recognizer.eval()
+            print("  + Recognizer: FaceNet Loaded")
+        except ImportError:
+            print("ERR: Install facenet-pytorch dulu")
+            exit()
+
+    # [OPSI 2] YOLO Backbone
+    elif SELECTED_MODEL == "yolo_backbone":
+        print("  + Recognizer: Using YOLOv11 Internal Backbone")
+
+    # [OPSI 3 & 4] ArcFace & VGG-Face (Via DeepFace)
+    elif SELECTED_MODEL in ["arcface", "vgg"]:
+        try:
+            # !!! INI YANG TADI KURANG !!!
+            from deepface import DeepFace
+
+            # Kita panggil sekali biar dia download weight di awal
+            print(f"  + Recognizer: {SELECTED_MODEL.upper()} (via DeepFace) Initializing...")
+            print("    (Pertama kali akan download model, tunggu sebentar...)")
+
+            # Dummy run biar model ke-load ke memory
+            # DeepFace modelnya diload otomatis saat pemanggilan fungsi represent
+        except ImportError:
+            print("ERR: Library deepface belum ada.")
+            print("Run: pip install deepface tf-keras")
+            exit()
+
+    else:
+        print(f"Error: Model '{SELECTED_MODEL}' tidak dikenali!")
+        exit()
+
+except Exception as e:
+    print(f"ERROR Load Model: {e}")
+    exit()
+
+
+# ============================================================
+# 4. FUNGSI EMBEDDING (STACKING AREA)
+# ============================================================
+@torch.no_grad()
+def get_embedding(img_bgr):
+    if img_bgr is None or img_bgr.size == 0: return None
+
+    # -----------------------------------------------------
+    # METODE 1: FACENET
+    # -----------------------------------------------------
+    if SELECTED_MODEL == "facenet":
+        input_img = cv2.resize(img_bgr, (160, 160))
+        input_img = cv2.cvtColor(input_img, cv2.COLOR_BGR2RGB)
+        input_img = np.float32(input_img)
+        input_img = (input_img - 127.5) / 128.0
+        tensor = torch.from_numpy(input_img).permute(2, 0, 1).unsqueeze(0).to(device)
+        return model_recognizer(tensor).flatten().cpu().numpy()
+
+    # -----------------------------------------------------
+    # METODE 2: YOLO BACKBONE
+    # -----------------------------------------------------
+    elif SELECTED_MODEL == "yolo_backbone":
+        input_img = cv2.resize(img_bgr, (128, 128))
+        tensor = torch.from_numpy(input_img).float().to(device) / 255.0
+        tensor = tensor.permute(2, 0, 1).unsqueeze(0)
+        x = tensor
+        for i, layer in enumerate(model_detector.model.model):
+            x = layer(x)
+            if i == 9: break
+        emb = torch.mean(x, dim=(2, 3)).flatten()
+        return (emb / emb.norm()).cpu().numpy()
+
+    # -----------------------------------------------------
+    # METODE 3 & 4: DEEPFACE (ARCFACE / VGG)
+    # -----------------------------------------------------
+    elif SELECTED_MODEL in ["arcface", "vgg"]:
+        # DeepFace butuh import di scope ini juga atau global
+        from deepface import DeepFace
+
+        # DeepFace butuh RGB
+        img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+
+        # Nama model sesuai config string DeepFace
+        model_name_map = {
+            "arcface": "ArcFace",
+            "vgg": "VGG-Face"
+        }
+
+        try:
+            # enforce_detection=False karena wajah sudah dicari oleh YOLO
+            results = DeepFace.represent(
+                img_path=img_rgb,
+                model_name=model_name_map[SELECTED_MODEL],
+                enforce_detection=False,
+                detector_backend="skip"
+            )
+            return np.array(results[0]["embedding"])
+        except:
+            return None
+
+    return None
+
+
+# ============================================================
+# 5. CORE LOGIC
+# ============================================================
 def get_distance(emb1, emb2):
-    """
-    Hitung cosine distance antara dua embedding wajah.
-    Distance = 0 → identik, distance = 1 → sangat berbeda
+    return 1 - np.dot(emb1, emb2) / (np.linalg.norm(emb1) * np.linalg.norm(emb2))
 
-    Parameters:
-        emb1, emb2 (np.array): embedding wajah
-    Returns:
-        float: nilai cosine distance
-    """
-    a = np.matmul(emb1, emb2)
-    b = np.linalg.norm(emb1)
-    c = np.linalg.norm(emb2)
-    return 1 - (a / (b * c))
 
-def blur_face(face):
-    """
-    Blur wajah menggunakan Gaussian Blur.
+def blur_face(face_img):
+    return cv2.GaussianBlur(face_img, (51, 51), 30)
 
-    Parameters:
-        face (np.array): potongan gambar wajah
-    Returns:
-        np.array: hasil blur
-    """
-    return cv2.GaussianBlur(face, (51, 51), 30)
 
-def is_close(box1, box2, limit=50):
-    """
-    Cek apakah dua bounding box berdekatan.
-    Digunakan untuk tracking wajah sederhana agar tidak memanggil
-    DeepFace tiap frame.
-
-    Parameters:
-        box1, box2 (list): [x1, y1, x2, y2]
-        limit (int): threshold jarak
-    Returns:
-        bool: True jika berdekatan
-    """
-    cx1, cy1 = (box1[0] + box1[2]) // 2, (box1[1] + box1[3]) // 2
-    cx2, cy2 = (box2[0] + box2[2]) // 2, (box2[1] + box2[3]) // 2
-    dist = math.sqrt((cx1 - cx2) ** 2 + (cy1 - cy2) ** 2)
-    return dist < limit
+# Generate Whitelist
+target_embeddings = []
+print("INFO: Generating Whitelist...")
+if not os.path.exists(WHITELIST_DIR): os.makedirs(WHITELIST_DIR)
+for fname in os.listdir(WHITELIST_DIR):
+    path = os.path.join(WHITELIST_DIR, fname)
+    if os.path.isfile(path):
+        img = cv2.imread(path)
+        if img is not None:
+            emb = get_embedding(img)
+            if emb is not None:
+                target_embeddings.append(emb)
+                print(f"  + Loaded: {fname}")
+target_embeddings = np.array(target_embeddings)
+print(f"INFO: {len(target_embeddings)} wajah siap.")
 
 # ============================================================
-# MAIN LOOP (PROGRAM UTAMA)
+# 6. MAIN LOOP
 # ============================================================
-cap = cv2.VideoCapture(0)  # Akses kamera default
-frame_count = 0             # Counter frame
-tracked_faces = []          # Status wajah frame sebelumnya
+cap = cv2.VideoCapture(0)
+# Paksa resolusi
+cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
 
-fps = 0
+tracked_faces = []
 prev_time = time.time()
-
-print("INFO: Kamera berjalan. Tekan 'q' untuk keluar.")
+print("\nControls: [t] Switch CPU/GPU | [q] Quit\n")
 
 while True:
-    ret, frame = cap.read()
-    if not ret:
-        break
+    ok, frame = cap.read()
+    if not ok: break
 
-    sframe = cv2.resize(frame, INPUT_RES)  # Resize ke resolusi input
+    sframe = cv2.resize(frame, INPUT_RES)
+    display_frame = sframe.copy()
 
-    # Hitung FPS
+    # FPS
     curr_time = time.time()
     fps = 1 / (curr_time - prev_time) if (curr_time - prev_time) > 0 else 0
     prev_time = curr_time
-    cv2.putText(sframe, f"FPS: {fps:.2f}", (10, 25), cv2.FONT_HERSHEY_SIMPLEX,
-                0.7, (0, 255, 0), 2)
 
-    # Deteksi wajah menggunakan YOLO
-    results = model(sframe, stream=True, verbose=False, device=DEVICE_TARGET)
-    current_faces_status = []
+    # Inference Time Start
+    t_start = time.time()
 
+    # 1. DETEKSI (YOLO)
+    results = model_detector(sframe, stream=True, verbose=False)
+
+    status_list = []
     for result in results:
         for box in result.boxes:
-            # Ambil koordinat bounding box
             x1, y1, x2, y2 = map(int, box.xyxy[0])
-            h, w, _ = sframe.shape
+            # Clipping
+            h, w = sframe.shape[:2]
             x1, y1 = max(0, x1), max(0, y1)
             x2, y2 = min(w, x2), min(h, y2)
 
-            face_img = sframe[y1:y2, x1:x2]
-            if face_img.size == 0:
-                continue
+            face = sframe[y1:y2, x1:x2]
+            if face.size == 0: continue
 
-            # Status wajah
-            is_whitelisted = False
-            needs_recognition = (frame_count % SKIP_FRAMES == 0)
-            matched_prev_status = None
-            debug_dist = 0.0
+            # 2. RECOGNITION (Sesuai SELECTED_MODEL)
+            is_white = False
+            score = 1.0
 
-            # Tracking sederhana: cek wajah dari frame sebelumnya
-            if not needs_recognition:
-                for tf_data in tracked_faces:
-                    if is_close([x1, y1, x2, y2], tf_data["box"]):
-                        matched_prev_status = tf_data["status"]
-                        debug_dist = tf_data.get("dist", 0.0)
-                        break
-                if matched_prev_status is not None:
-                    is_whitelisted = matched_prev_status
-                else:
-                    needs_recognition = True
+            if len(target_embeddings) > 0:
+                emb = get_embedding(face)
+                if emb is not None:
+                    dists = [get_distance(t, emb) for t in target_embeddings]
+                    score = min(dists)
+                    if score <= THRESHOLD: is_white = True
 
-            # Pengenalan wajah dengan DeepFace
-            if needs_recognition and len(target_embeddings) > 0:
-                face_img_rgb = cv2.cvtColor(face_img, cv2.COLOR_BGR2RGB)
-                try:
-                    curr = DeepFace.represent(
-                        img_path=face_img_rgb,
-                        model_name="Facenet512",
-                        enforce_detection=False
-                    )
-                    if curr:
-                        curr_emb = curr[0]["embedding"]
-                        dists = [get_distance(t, curr_emb) for t in target_embeddings]
-                        min_dist = min(dists)
-                        debug_dist = min_dist
-                        print(f"[Check] Dist: {min_dist:.4f} | Thresh: {THRESHOLD}")
-                        if min_dist <= THRESHOLD:
-                            is_whitelisted = True
-                except Exception:
-                    pass
+            status_list.append({'box': [x1, y1, x2, y2], 'ok': is_white, 'sc': score})
 
-            # Simpan status wajah
-            current_faces_status.append({
-                "box": [x1, y1, x2, y2],
-                "status": is_whitelisted,
-                "dist": debug_dist
-            })
+    # Inference Time End
+    inference_ms = (time.time() - t_start) * 1000
 
-            # Blur atau tampilkan bounding box
-            if not is_whitelisted:
-                sframe[y1:y2, x1:x2] = blur_face(face_img)
-                color = (0, 0, 255)
-            else:
-                cv2.rectangle(sframe, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                color = (0, 255, 0)
+    # VISUALISASI
+    for item in status_list:
+        x1, y1, x2, y2 = item['box']
+        color = COLOR_KNOWN if item['ok'] else COLOR_UNKNOWN
+        label = f"{'Me' if item['ok'] else 'Unknown'} ({item['sc']:.2f})"
 
-            # Tampilkan distance untuk debugging
-            cv2.putText(sframe, f"Dist: {debug_dist:.3f}", (x1, y1 - 10),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
+        if not item['ok']:
+            try:
+                display_frame[y1:y2, x1:x2] = blur_face(display_frame[y1:y2, x1:x2])
+            except:
+                pass
 
-    tracked_faces = current_faces_status
-    frame_count += 1
+        cv2.rectangle(display_frame, (x1, y1), (x2, y2), color, 2)
+        cv2.putText(display_frame, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
 
-    cv2.imshow("YOLOv11 Face Blur DEBUG", sframe)
+    # INFO BAR
+    info = f"[{'GPU' if 'cuda' in str(device) else 'CPU'}] {SELECTED_MODEL.upper()} | {inference_ms:.1f}ms"
+    cv2.putText(display_frame, info, (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+    cv2.imshow("Multi-Model Benchmark", display_frame)
 
-    if cv2.waitKey(1) & 0xFF == ord('q'):
+    key = cv2.waitKey(1) & 0xFF
+    if key == ord('q'):
         break
+    elif key == ord('t'):
+        new_dev = "cpu" if "cuda" in str(device) else ("cuda" if HAS_CUDA else "cpu")
+        device = torch.device(new_dev)
 
-# ============================================================
-# CLEANUP
-# ============================================================
+        # Pindah YOLO
+        model_detector.to(device)
+
+        # Pindah FaceNet (Kalau aktif)
+        if SELECTED_MODEL == "facenet" and model_recognizer:
+            model_recognizer.to(device)
+
+        # DeepFace (ArcFace/VGG) otomatis handle device via TensorFlow/Keras environment,
+        # jadi ga perlu manual .to(device) seperti PyTorch
+
+        print(f"SWITCH -> {new_dev.upper()}")
+
 cap.release()
 cv2.destroyAllWindows()
-print("INFO: Program dihentikan. Kamera ditutup.")
