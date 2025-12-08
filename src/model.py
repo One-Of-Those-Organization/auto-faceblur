@@ -7,6 +7,7 @@ import os
 import cv2
 import torch
 import numpy as np
+import deepface
 from ultralytics import YOLO
 
 
@@ -52,37 +53,33 @@ class ActiveModel:
     def _load_recognizer(self):
         model_name = self.cfg.selected_model
 
-        # 1. FACENET
+        # FACENET512 (DeepFace internal)
         if model_name == "facenet":
             try:
-                from facenet_pytorch import InceptionResnetV1
-                model = InceptionResnetV1(pretrained='vggface2', classify=False).to(self.device)
-                model.eval()
-                print("INFO: FaceNet loaded")
-                return model
-            except ImportError:
-                print("ERR: facenet-pytorch missing")
-                return None
+                from deepface import DeepFace
+                print("INFO: DeepFace Facenet512 will be used (represent)")
+                return True   # no model object needed
             except Exception as e:
-                print(f"ERR: failed to init facenet: {e}")
+                print(f"ERR: Cannot initialize DeepFace Facenet512: {e}")
                 return None
 
-        # 2. YOLO backbone = no external model
+        # YOLO backbone
         if model_name == "yolo_backbone":
             print("INFO: YOLO backbone used for embeddings")
             return None
 
-        # 3. DEEPFACE (ArcFace/VGG)
+        # ARC / VGG
         if model_name in ["arcface", "vgg"]:
             try:
                 from deepface import DeepFace
                 print(f"INFO: DeepFace {model_name} initialized")
-                return True  # Flag only
+                return True
             except Exception as e:
                 print(f"ERR: deepface not available: {e}")
                 return None
 
         return None
+
 
     def _load_whitelist(self):
         folder = self.cfg.whitelist_dir
@@ -132,22 +129,23 @@ class ActiveModel:
 
         # --------------------- FACENET ---------------------
         if model == "facenet":
-            if self.recognizer is None:
-                # recognizer missing; can't compute embedding
-                return None
             try:
-                x = cv2.resize(img_bgr, (160, 160))
-                x = cv2.cvtColor(x, cv2.COLOR_BGR2RGB)
-                x = (x - 127.5) / 128.0
-                x = torch.from_numpy(x).float().permute(2, 0, 1).unsqueeze(0).to(self.device)
-                out = self.recognizer(x)
-                # Some models return tuple or dict; ensure tensor
-                if isinstance(out, (tuple, list)):
-                    out = out[0]
-                emb = out.flatten().cpu().numpy()
-                return emb
+                from deepface import DeepFace
+
+                res = DeepFace.represent(
+                    img_path=img_bgr,
+                    model_name="Facenet512",
+                    enforce_detection=False,
+                    detector_backend="skip"
+                )
+
+                if isinstance(res, list) and len(res) > 0:
+                    return np.array(res[0]["embedding"], dtype=np.float32)
+
+                return None
+
             except Exception as e:
-                print(f"ERR: facenet embedding failed: {e}")
+                print(f"ERR: Facenet512 embedding failed: {e}")
                 return None
 
         # --------------------- YOLO BACKBONE ---------------------
