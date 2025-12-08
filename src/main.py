@@ -9,6 +9,7 @@ import base64
 import time
 import cv2
 import numpy as np
+from model import ActiveModel, ActiveModelConfig
 
 app = Flask(__name__)
 app.secret_key = "INI KUNCI RAHASIA YANG TIDAK RAHASIA C4F3B4BE600DF00D"
@@ -37,12 +38,10 @@ MAX_FPS = 30
 MIN_FRAME_INTERVAL = 1.0 / MAX_FPS  # ~0.033 seconds between frames
 
 
-def process_frame(img):
+def process_frame(model, img):
     """Process incoming camera frames with face blur."""
-    # Example CV processing (grayscale for now - replace with actual face blur logic)
-    gs = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    processed = cv2.cvtColor(gs, cv2.COLOR_GRAY2BGR)
-    return processed
+    out_frame, detections = model.predict_frame(img)
+    return out_frame
 
 
 def get_user_whitelist_dir(user_id: int) -> str:
@@ -164,7 +163,14 @@ def be_login():
 @sock.route('/ws/camera')
 def ws_camera(ws):
     """WebSocket endpoint for processing camera frames."""
+    # i need session.id to do this what do you think should i do?
+
     last_frame_time = 0
+    cfg = ActiveModelConfig(
+        selected_model="facenet",
+        whitelist_dir="./static/whitelist/"
+    )
+    model = ActiveModel(cfg)
 
     while True:
         try:
@@ -196,7 +202,7 @@ def ws_camera(ws):
                     continue
 
                 # Process the frame (apply face blur)
-                processed = process_frame(frame)
+                processed = process_frame(model, frame)
 
                 # Encode processed frame back to base64 JPEG
                 encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 80]
