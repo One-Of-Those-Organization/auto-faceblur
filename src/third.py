@@ -19,8 +19,8 @@ from ultralytics import YOLO
 # ============================================================
 # CONFIGURATION
 # ============================================================
-SKIP_FRAMES = 20          # Recognition every N frames
-THRESHOLD = 0.45          # Cosine distance threshold for whitelist match
+SKIP_FRAMES = 5           # Recognition every N frames
+THRESHOLD = 0.35          # Cosine distance threshold for whitelist match
 INPUT_RES = (640, 480)    # Camera input resolution
 
 fps = 0
@@ -40,8 +40,10 @@ print("INFO: Model loaded on", device)
 # ============================================================
 
 def get_distance(emb1, emb2):
-    """Calculate cosine distance between two embeddings."""
-    return 1 - np.dot(emb1, emb2) / (np.linalg.norm(emb1) * np.linalg.norm(emb2))
+    n1, n2 = np.linalg.norm(emb1), np.linalg.norm(emb2)
+    if n1 == 0 or n2 == 0:
+        return 1.0
+    return 1 - np.dot(emb1, emb2) / (n1 * n2)
 
 @torch.no_grad()
 def get_embedding(img_bgr):
@@ -139,9 +141,12 @@ while True:
     for result in results:
         for box in result.boxes:
             x1, y1, x2, y2 = map(int, box.xyxy[0])
+            # clamp to frame
             h, w, _ = sframe.shape
             x1, y1 = max(0, x1), max(0, y1)
             x2, y2 = min(w, x2), min(h, y2)
+            if x2 <= x1 or y2 <= y1:
+                continue
 
             face = sframe[y1:y2, x1:x2]
             if face is None or face.size == 0:
@@ -149,12 +154,14 @@ while True:
 
             is_whitelisted = False
             needs_recognition = (frame_count % SKIP_FRAMES == 0)
+            dist = None  # store last distance
 
             # Tracking previous faces
             if not needs_recognition:
                 for tf in tracked_faces:
                     if is_close([x1, y1, x2, y2], tf["box"]):
                         is_whitelisted = tf["status"]
+                        dist = tf.get("dist")
                         break
                 else:
                     needs_recognition = True
@@ -164,17 +171,24 @@ while True:
                 emb = get_embedding(face)
                 if emb is not None:
                     dists = [get_distance(t, emb) for t in target_embeddings]
-                    if min(dists) <= THRESHOLD:
+                    best = float(min(dists))
+                    if best <= THRESHOLD:
                         is_whitelisted = True
+                        dist = best
 
             current_faces_status.append({
                 "box": [x1, y1, x2, y2],
-                "status": is_whitelisted
+                "status": is_whitelisted,
+                "dist": dist,
             })
 
             # Apply blur if not whitelisted
             if not is_whitelisted:
                 sframe[y1:y2, x1:x2] = blur_face(face)
+            else:
+                shown = dist if dist is not None else 0.0
+                cv2.putText(sframe, f"Dist: {shown:.3f}", (x1, y1 - 10),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
 
     tracked_faces = current_faces_status
     frame_count += 1
