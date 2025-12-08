@@ -33,7 +33,7 @@ db.close()
 # -- WebSocket & CV Setup --
 # -----------------------
 
-MAX_FPS = 30
+MAX_FPS = 60
 MIN_FRAME_INTERVAL = 1.0 / MAX_FPS  # ~0.033 seconds between frames
 
 # Token storage for WebSocket authentication
@@ -150,12 +150,13 @@ def ws_camera(ws):
     user_whitelist_dir = os.path.join(app.static_folder, "whitelist", str(user_id))
     os.makedirs(user_whitelist_dir, exist_ok=True)
 
-    cfg = ActiveModelConfig(selected_model="facenet", whitelist_dir=user_whitelist_dir)
+    cfg = ActiveModelConfig(selected_model="yolo_backbone", whitelist_dir=user_whitelist_dir)
     model = ActiveModel(cfg)
 
     print(f"WebSocket connected for user_id: {user_id}, whitelist: {user_whitelist_dir}")
 
-    last_frame_time = 0
+    last_frame_time = 0.0
+    FRAME_MAX_AGE = 0.25  # seconds; drop frames older than this
 
     while True:
         try:
@@ -169,17 +170,37 @@ def ws_camera(ws):
                     pass
                 break
 
-            current_time = time.time()
-            elapsed = current_time - last_frame_time
+            # ----- UDP-style: parse timestamp and drop stale frames -----
+            # Expected format from client:
+            #   "ts:<unix_ts>,<data:image/jpeg;base64,...>" OR "ts:<unix_ts>,<raw_base64>"
+            frame_time = time.time()
+            if isinstance(data, str) and data.startswith("ts:"):
+                try:
+                    header, rest = data.split(",", 1)
+                    _, ts_str = header.split(":", 1)
+                    frame_time = float(ts_str)
+                    data = rest
+                except Exception as e:
+                    # If parsing timestamp fails, fall back to now
+                    print(f"Timestamp parse failed: {e}")
+                    frame_time = time.time()
+
+            now = time.time()
+            if now - frame_time > FRAME_MAX_AGE:
+                # Frame too old, drop it completely (no processing, no send)
+                continue
+            # ------------------------------------------------------------
+
+            # FPS limiting, but by dropping frames instead of sleeping
+            elapsed = now - last_frame_time
             if elapsed < MIN_FRAME_INTERVAL:
-                # skip to maintain FPS (do not keep looping too tight)
-                time.sleep(max(0, MIN_FRAME_INTERVAL - elapsed))
+                # We're still within the FPS window: drop this frame
                 continue
 
-            last_frame_time = current_time
+            last_frame_time = now
 
             try:
-                if ',' in data:
+                if isinstance(data, str) and ',' in data:
                     # handle data:url;base64,... or raw base64
                     data = data.split(',', 1)[1]
 

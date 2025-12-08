@@ -14,8 +14,8 @@ from ultralytics import YOLO
 class ActiveModelConfig:
     def __init__(
         self,
-        selected_model="facenet",
-        skip_frames=1,
+        selected_model="yolo_backbone",
+        skip_frames=20,
         threshold=0.5,
         res=(640, 480),
         whitelist_dir="../whitelist/"

@@ -323,7 +323,11 @@
         const tempCtx = tempCanvas.getContext("2d");
 
         frameInterval = setInterval(() => {
-            if (! ws || ws.readyState !== WebSocket. OPEN || ! stream || ! authenticated) {
+            if (!ws || ws.readyState !== WebSocket.OPEN || !stream || !authenticated) {
+                return;
+            }
+
+            if (video.videoWidth === 0 || video.videoHeight === 0) {
                 return;
             }
 
@@ -332,9 +336,18 @@
             tempCanvas.height = video.videoHeight;
             tempCtx.drawImage(video, 0, 0);
 
-            // Convert to base64 JPEG and send
-            const frameData = tempCanvas.toDataURL("image/jpeg", 0.8);
-            ws.send(frameData);
+            // Convert to base64 JPEG
+            const frameData = tempCanvas.toDataURL("image/jpeg", 0.8); // "data:image/jpeg;base64,..."
+
+            // Attach timestamp so server can drop stale frames (UDP-style)
+            const nowSec = Date.now() / 1000.0; // unix seconds
+            const payload = `ts:${nowSec},${frameData}`;
+
+            try {
+                ws.send(payload);
+            } catch (e) {
+                console.error("Failed to send frame:", e);
+            }
         }, FRAME_INTERVAL_MS);
     }
 
