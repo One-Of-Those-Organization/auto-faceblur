@@ -1,4 +1,6 @@
 from flask import Flask, render_template, session, redirect, request, jsonify, url_for
+from aiortc.rtcconfiguration import RTCConfiguration, RTCIceServer
+from aiortc import RTCPeerConnection, RTCSessionDescription, VideoStreamTrack
 from werkzeug.utils import secure_filename
 from connection import Database
 import utils
@@ -6,9 +8,19 @@ import os
 import re
 import base64
 import time
+import asyncio
+import cv2
+from av import VideoFrame
 
 app = Flask(__name__)
 app.secret_key = "INI KUNCI RAHASIA YANG TIDAK RAHASIA C4F3B4BE600DF00D"
+app.config.update({
+    "SESSION_COOKIE_SAMESITE": "Lax",
+    "SESSION_COOKIE_SECURE": False,
+    "SESSION_COOKIE_HTTPONLY": True,
+    "SESSION_COOKIE_DOMAIN": None,
+    "SESSION_COOKIE_PATH": "/",
+})
 
 db = Database("db.sqlite")
 db.create_table_if_not_exist()
@@ -16,6 +28,31 @@ db.create_table_if_not_exist()
 db.query("INSERT INTO users (name, email, password) VALUES (?, ?, ?)", ("admin", "admin@admin.com", utils.hash_password("1234")))
 """
 db.close()
+# -----------------------
+# -- WebRTC & CV Setup --
+# -----------------------
+
+# Global set to keep track of peer connections
+pcs = set()
+
+class VideoTransformTrack(VideoStreamTrack):
+    """Process incoming camera frames."""
+    def __init__(self, track):
+        super().__init__()
+        self.track = track
+
+    async def recv(self):
+        frame = await self.track.recv()
+        img = frame.to_ndarray(format="bgr24")
+
+        # Example CV (grayscale)
+        gs = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        processed = cv2.cvtColor(gs, cv2.COLOR_GRAY2BGR)
+
+        new_frame = VideoFrame.from_ndarray(processed, format="bgr24")
+        new_frame.pts = frame.pts
+        new_frame.time_base = frame.time_base
+        return new_frame
 
 
 def get_user_whitelist_dir(user_id: int) -> str:
@@ -80,6 +117,8 @@ def be_login():
             "status": 0,
             "message": "Already logged-in"
         })
+    email = request.form["email"]
+    password = request.form["password"]
 
     email = request.form["email"]
     password = request.form["password"]
@@ -129,6 +168,57 @@ def be_login():
             "status": 0,
             "message": "Wrong email format"
         })
+
+@app.route("/offer", methods=["POST"])
+async def offer():
+    if not session.get("logged_in"):
+        return jsonify({"status": 0, "message": "Unauthorized"}), 401
+
+    params = request.get_json(force=True)
+    offer = RTCSessionDescription(params["sdp"], params["type"])
+
+    config = RTCConfiguration(
+        iceServers=[RTCIceServer(
+            urls=[
+                "stun:stun.l.google.com:19302",
+                "stun:stun1.l.google.com:19302",
+                "stun:stun2.l.google.com:19302",
+                "stun:stun3.l.google.com:19302",
+                "stun:stun4.l.google.com:19302",
+            ]
+        )]
+    )
+
+    pc = RTCPeerConnection(configuration=config)
+    pcs.add(pc)
+
+    @pc.on("track")
+    def on_track(track):
+        if track.kind == "video":
+            pc.addTrack(VideoTransformTrack(track))
+
+    @pc.on("connectionstatechange")
+    async def on_state():
+        if pc.connectionState in ("failed", "closed", "disconnected"):
+            await pc.close()
+            pcs.discard(pc)
+
+    await pc.setRemoteDescription(offer)
+    answer = await pc.createAnswer()
+    await pc.setLocalDescription(answer)
+
+    return jsonify({
+        "sdp": pc.localDescription.sdp,
+        "type": pc.localDescription.type,
+    })
+
+@app.route("/cleanup")
+async def cleanup():
+    """To force close all peer connections (debug only)."""
+    for pc in list(pcs):
+        await pc.close()
+        pcs.discard(pc)
+    return jsonify({"status": 1, "message": "All peer connections cleaned"})
 
 @app.route('/be/register', methods=["POST"])
 def register():

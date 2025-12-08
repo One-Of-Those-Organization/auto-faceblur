@@ -10,7 +10,8 @@
 
     <!-- CAMERA FRAME -->
     <div class="w-full max-w-md bg-black rounded-xl shadow-lg overflow-hidden mb-6">
-        <video id="cameraFeed" autoplay playsinline class="w-full h-auto"></video>
+        <video id="cameraFeed" autoplay playsinline muted class="w-full h-auto"></video>
+        <video id="remoteCamera" autoplay playsinline class="w-full h-auto hidden"></video>
     </div>
 
     <!-- WHITELIST MANAGER -->
@@ -54,18 +55,18 @@
         </button>
 
         <!-- Take Photo -->
-        <button id="captureBtn"
-                class="w-full bg-blue-500 text-white font-semibold py-3 rounded-xl transition opacity-40 cursor-not-allowed"
-                disabled>
-            Take Photo
-        </button>
+        <!-- <button id="captureBtn" -->
+        <!--         class="w-full bg-blue-500 text-white font-semibold py-3 rounded-xl transition opacity-40 cursor-not-allowed" -->
+        <!--         disabled> -->
+        <!--     Take Photo -->
+        <!-- </button> -->
 
         <!-- Record Video -->
-        <button id="recordBtn"
-                class="w-full bg-purple-500 text-white font-semibold py-3 rounded-xl transition opacity-40 cursor-not-allowed"
-                disabled>
-            Start Recording
-        </button>
+        <!-- <button id="recordBtn" -->
+        <!--         class="w-full bg-purple-500 text-white font-semibold py-3 rounded-xl transition opacity-40 cursor-not-allowed" -->
+        <!--         disabled> -->
+        <!--     Start Recording -->
+        <!-- </button> -->
 
     </div>
 
@@ -87,14 +88,15 @@
     let mediaRecorder = null;
     let chunks = [];
     let recording = false;
+    let pc = null;
 
     const video = document.getElementById("cameraFeed");
     const canvas = document.getElementById("snapshotCanvas");
     const downloadLink = document.getElementById("downloadLink");
 
     const startBtn = document.getElementById("startBtn");
-    const captureBtn = document.getElementById("captureBtn");
-    const recordBtn = document.getElementById("recordBtn");
+    // const captureBtn = document.getElementById("captureBtn");
+    // const recordBtn = document.getElementById("recordBtn");
 
     const whitelistInput = document.getElementById("whitelistInput");
     const whitelistStatus = document.getElementById("whitelistStatus");
@@ -221,6 +223,7 @@
     refreshWhitelistBtn.onclick = fetchWhitelist;
 
     // ---------- Camera controls ----------
+    /*
     function enableControls() {
         captureBtn.disabled = false;
         recordBtn.disabled = false;
@@ -234,18 +237,67 @@
         captureBtn.classList.add("opacity-40", "cursor-not-allowed");
         recordBtn.classList.add("opacity-40", "cursor-not-allowed");
     }
+    */
 
     // START CAMERA
-    async function startCamera() {
+async function startCamera() {
         try {
             stream = await navigator.mediaDevices.getUserMedia({video: true});
             video.srcObject = stream;
 
+            pc = new RTCPeerConnection({iceServers: [
+                { urls: ["stun:stun.l.google.com:19302"] },
+                {
+                    urls: [
+                        "turn:openrelay.metered.ca:80",
+                        "turn:openrelay.metered.ca:443",
+                        "turn:openrelay.metered.ca:443?transport=tcp"
+                    ],
+                    username: "openrelayproject",
+                    credential: "openrelayproject"
+                }
+            ]});
+
+            stream.getTracks().forEach(track => pc.addTrack(track, stream));
+            pc.ontrack = (event) => {
+                const remote = document.getElementById("remoteCamera");
+                if (remote) {
+                    remote.srcObject = event.streams[0];
+                    remote.classList.remove("hidden");
+                }
+            };
+            pc.onconnectionstatechange = () => {
+                console.log("STATE:", pc.connectionState);
+
+                if (["disconnected", "failed", "closed"].includes(pc.connectionState)) {
+                    pc.close();
+                }
+            };
+
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+
+            const response = await fetch('/offer', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    sdp: pc.localDescription.sdp,
+                    type: pc.localDescription.type
+                })
+            });
+
+            if (response.status === 401) {
+                alert("Session expired. Please login again.");
+                window.location.href = "/login";
+                return;
+            }
+
+            const answer = await response.json();
+            await pc.setRemoteDescription(answer);
+
             startBtn.textContent = "Stop Camera";
             startBtn.classList.remove("bg-green-500");
             startBtn.classList.add("bg-red-500");
-
-            enableControls();
         } catch (e) {
             alert("Tidak bisa membuka kamera: " + e);
         }
@@ -257,6 +309,13 @@
             stream.getTracks().forEach(t => t.stop());
             stream = null;
         }
+        if (pc) {
+            pc.getSenders().forEach(s => {
+                try { if (s.track) s.track.stop(); } catch (_e) {}
+            });
+            pc.close();
+            pc = null;
+        }
 
         video.srcObject = null;
 
@@ -264,7 +323,7 @@
         startBtn.classList.remove("bg-red-500");
         startBtn.classList.add("bg-green-500");
 
-        disableControls();
+        // disableControls();
     }
 
     // BUTTON EVENTS (TOGGLE CAMERA, TAKE PHOTO, RECORD VIDEO)
@@ -274,6 +333,7 @@
     };
 
     // TAKE PHOTO
+  /*
     captureBtn.onclick = () => {
         canvas.width = video.videoWidth;
         canvas.height = video.videoHeight;
@@ -325,6 +385,7 @@
             recordBtn.classList.add("bg-purple-500");
         }
     };
+    */
 
     // Initial load
     fetchWhitelist();

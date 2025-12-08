@@ -19,3 +19,5 @@ torch
 torchvision
 pillow>=11.0.0
 requests
+flask[async]
+aiortc
