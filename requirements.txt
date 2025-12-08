@@ -1,5 +1,21 @@
+# --- Core Computer Vision & YOLO ---
 opencv-python
+ultralytics
+numpy
+
+# --- Web Framework (Deployment) ---
+flask
+
+# --- Face Recognition Models ---
+# FaceNet (Pytorch Version)
+facenet-pytorch
+# DeepFace (Tensorflow/Keras Version - untuk komparasi nanti)
 deepface
 tf-keras
-ultralytics
-flask
+
+# --- Essential Dependencies (Fix untuk Python 3.13) ---
+# Wajib dilist manual biar pip ga bingung cari versi lama
+torch
+torchvision
+pillow>=11.0.0
+requests

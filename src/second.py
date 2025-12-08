@@ -21,7 +21,7 @@ from ultralytics import YOLO
 # ============================================================
 # Pilihan: "yolo_backbone", "facenet", "arcface", "vgg"
 
-SELECTED_MODEL = "vgg"  # <--- Sedang pakai ARCFACE
+SELECTED_MODEL = "facenet"  # <--- Sedang pakai ARCFACE
 
 # Config Lain
 SKIP_FRAMES = 1
