@@ -150,7 +150,7 @@ def ws_camera(ws):
     user_whitelist_dir = os.path.join(app.static_folder, "whitelist", str(user_id))
     os.makedirs(user_whitelist_dir, exist_ok=True)
 
-    cfg = ActiveModelConfig(selected_model="yolo_backbone", whitelist_dir=user_whitelist_dir)
+    cfg = ActiveModelConfig(selected_model="facenet", whitelist_dir=user_whitelist_dir)
     model = ActiveModel(cfg)
 
     print(f"WebSocket connected for user_id: {user_id}, whitelist: {user_whitelist_dir}")

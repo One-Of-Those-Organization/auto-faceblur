@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Source: model.py (fixed)
+Source: second.py
 """
 
 import os
@@ -53,33 +53,33 @@ class ActiveModel:
     def _load_recognizer(self):
         model_name = self.cfg.selected_model
 
-        # FACENET512 (DeepFace internal)
         if model_name == "facenet":
             try:
-                from deepface import DeepFace
-                print("INFO: DeepFace Facenet512 will be used (represent)")
-                return True   # no model object needed
+                from facenet_pytorch import InceptionResnetV1
+
+                model = InceptionResnetV1(pretrained="vggface2", classify=False)
+                model.eval()
+                model.to(self.device)
+                print("INFO: FaceNet (facenet-pytorch, vggface2) loaded")
+                return model
             except Exception as e:
-                print(f"ERR: Cannot initialize DeepFace Facenet512: {e}")
+                print(f"ERR: Cannot initialize facenet-pytorch: {e}")
                 return None
 
-        # YOLO backbone
         if model_name == "yolo_backbone":
             print("INFO: YOLO backbone used for embeddings")
             return None
 
-        # ARC / VGG
         if model_name in ["arcface", "vgg"]:
             try:
-                from deepface import DeepFace
+                from deepface import DeepFace  # noqa: F401
                 print(f"INFO: DeepFace {model_name} initialized")
-                return True
+                return True  # placeholder flag
             except Exception as e:
                 print(f"ERR: deepface not available: {e}")
                 return None
 
         return None
-
 
     def _load_whitelist(self):
         folder = self.cfg.whitelist_dir
@@ -107,7 +107,26 @@ class ActiveModel:
                     print(f"ERR: cannot read image {f}, skipping")
                     continue
 
-                emb = self.get_embedding(img)
+                # Try YOLO-based crop first (for consistency with live detection)
+                face_img = None
+                if self.detector is not None:
+                    try:
+                        res = self.detector(img, verbose=False)
+                        for r in res:
+                            if len(r.boxes) > 0:
+                                x1, y1, x2, y2 = map(int, r.boxes[0].xyxy[0])
+                                h, w = img.shape[:2]
+                                x1, y1 = max(0, x1), max(0, y1)
+                                x2, y2 = min(w, x2), min(h, y2)
+                                face_img = img[y1:y2, x1:x2]
+                                break
+                    except Exception as e:
+                        print(f"ERR: YOLO crop failed for {f}: {e}")
+
+                if face_img is None or face_img.size == 0:
+                    face_img = img  # fallback to full image
+
+                emb = self.get_embedding(face_img)
                 if emb is None:
                     print(f"ERR: no embedding for {f}, skipping")
                     continue
@@ -127,25 +146,24 @@ class ActiveModel:
 
         model = self.cfg.selected_model
 
-        # --------------------- FACENET ---------------------
+        # --------------------- FACENET (facenet-pytorch) ---------------------
         if model == "facenet":
-            try:
-                from deepface import DeepFace
-
-                res = DeepFace.represent(
-                    img_path=img_bgr,
-                    model_name="Facenet512",
-                    enforce_detection=False,
-                    detector_backend="skip"
-                )
-
-                if isinstance(res, list) and len(res) > 0:
-                    return np.array(res[0]["embedding"], dtype=np.float32)
-
+            if self.recognizer is None:
                 return None
-
+            try:
+                # 1) Resize to 160x160
+                input_img = cv2.resize(img_bgr, (160, 160))
+                # 2) BGR -> RGB
+                input_img = cv2.cvtColor(input_img, cv2.COLOR_BGR2RGB)
+                # 3) Normalize 0-1
+                tensor = torch.from_numpy(input_img).float().to(self.device) / 255.0
+                # 4) BCHW
+                tensor = tensor.permute(2, 0, 1).unsqueeze(0)
+                # 5) Forward
+                emb = self.recognizer(tensor).flatten().cpu().numpy()
+                return emb
             except Exception as e:
-                print(f"ERR: Facenet512 embedding failed: {e}")
+                print(f"ERR: Facenet embedding failed: {e}")
                 return None
 
         # --------------------- YOLO BACKBONE ---------------------
@@ -157,7 +175,6 @@ class ActiveModel:
                 x = torch.from_numpy(x).float().permute(2, 0, 1).unsqueeze(0).to(self.device) / 255.0
 
                 y = x
-                # iterate model backbone safely (some ultralytics versions differ)
                 try:
                     layers = getattr(self.detector.model, "model", self.detector.model)
                 except Exception:
