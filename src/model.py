@@ -16,7 +16,7 @@ class ActiveModelConfig:
         self,
         selected_model="yolo_backbone",
         skip_frames=20,
-        threshold=0.5,
+        threshold=0.47,
         res=(640, 480),
         whitelist_dir="../whitelist/"
     ):

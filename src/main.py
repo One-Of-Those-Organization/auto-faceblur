@@ -1,8 +1,8 @@
 from flask import Flask, render_template, session, redirect, request, jsonify, url_for
 from flask_sock import Sock
 from werkzeug.utils import secure_filename
-from connection import Database
-import utils
+from src.connection import Database
+from src import utils
 import os
 import re
 import base64
@@ -11,7 +11,7 @@ import secrets
 import cv2
 import numpy as np
 import traceback
-from model import ActiveModel, ActiveModelConfig
+from src.model import ActiveModel, ActiveModelConfig
 
 app = Flask(__name__)
 app.secret_key = "INI KUNCI RAHASIA YANG TIDAK RAHASIA C4F3B4BE600DF00D"
