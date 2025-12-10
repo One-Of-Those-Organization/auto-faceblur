@@ -1,26 +1,21 @@
 #!/usr/bin/env python3
-"""
-Source: second.py
-"""
-
 import os
 import cv2
 import torch
+import torch.nn as nn
+import torchvision.models as models
 import numpy as np
 import deepface
 from ultralytics import YOLO
 
-
 class ActiveModelConfig:
     def __init__(
-        self,
-        selected_model="yolo_backbone",
-        skip_frames=20,
-        threshold=0.47,
-        res=(640, 480),
-        whitelist_dir="../whitelist/"
-    ):
-        self.selected_model = selected_model
+            self,
+            skip_frames=20,
+            threshold=0.47,
+            res=(640, 480),
+            whitelist_dir="../whitelist/",
+            ):
         self.skip_frames = skip_frames
         self.threshold = threshold
         self.res = res
@@ -51,35 +46,16 @@ class ActiveModel:
         self.target_embeddings = self._load_whitelist()
 
     def _load_recognizer(self):
-        model_name = self.cfg.selected_model
+        from mfnet import MobileFacenet
+        model = MobileFacenet()
 
-        if model_name == "facenet":
-            try:
-                from facenet_pytorch import InceptionResnetV1
+        ckpt = torch.load("./model/068.ckpt", map_location=self.device)
+        model.load_state_dict(ckpt["net_state_dict"], strict=False)
+        model.eval()
+        model.to(self.device)
 
-                model = InceptionResnetV1(pretrained="vggface2", classify=False)
-                model.eval()
-                model.to(self.device)
-                print("INFO: FaceNet (facenet-pytorch, vggface2) loaded")
-                return model
-            except Exception as e:
-                print(f"ERR: Cannot initialize facenet-pytorch: {e}")
-                return None
-
-        if model_name == "yolo_backbone":
-            print("INFO: YOLO backbone used for embeddings")
-            return None
-
-        if model_name in ["arcface", "vgg"]:
-            try:
-                from deepface import DeepFace  # noqa: F401
-                print(f"INFO: DeepFace {model_name} initialized")
-                return True  # placeholder flag
-            except Exception as e:
-                print(f"ERR: deepface not available: {e}")
-                return None
-
-        return None
+        print("INFO: MobileFaceNet loaded")
+        return model
 
     def _load_whitelist(self):
         folder = self.cfg.whitelist_dir
@@ -141,83 +117,32 @@ class ActiveModel:
 
     @torch.no_grad()
     def get_embedding(self, img_bgr):
-        if img_bgr is None or getattr(img_bgr, "size", 0) == 0:
+        if img_bgr is None or img_bgr.size == 0:
             return None
 
-        model = self.cfg.selected_model
+        # Convert to RGB
+        img = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
 
-        # --------------------- FACENET (facenet-pytorch) ---------------------
-        if model == "facenet":
-            if self.recognizer is None:
-                return None
-            try:
-                # 1) Resize to 160x160
-                input_img = cv2.resize(img_bgr, (160, 160))
-                # 2) BGR -> RGB
-                input_img = cv2.cvtColor(input_img, cv2.COLOR_BGR2RGB)
-                # 3) Normalize 0-1
-                tensor = torch.from_numpy(input_img).float().to(self.device) / 255.0
-                # 4) BCHW
-                tensor = tensor.permute(2, 0, 1).unsqueeze(0)
-                # 5) Forward
-                emb = self.recognizer(tensor).flatten().cpu().numpy()
-                return emb
-            except Exception as e:
-                print(f"ERR: Facenet embedding failed: {e}")
-                return None
+        # Resize to 96 × 112 (width, height)
+        img = cv2.resize(img, (96, 112))
 
-        # --------------------- YOLO BACKBONE ---------------------
-        if model == "yolo_backbone":
-            if self.detector is None:
-                return None
-            try:
-                x = cv2.resize(img_bgr, (128, 128))
-                x = torch.from_numpy(x).float().permute(2, 0, 1).unsqueeze(0).to(self.device) / 255.0
+        # Normalize
+        img = img.astype(np.float32) / 255.0
+        img = (img - 0.5) / 0.5
 
-                y = x
-                try:
-                    layers = getattr(self.detector.model, "model", self.detector.model)
-                except Exception:
-                    layers = getattr(self.detector, "model", None)
+        # HWC -> CHW
+        img = np.transpose(img, (2, 0, 1))
+        img = torch.tensor(img, dtype=torch.float32).unsqueeze(0).to(self.device)
 
-                for i, layer in enumerate(layers):
-                    y = layer(y)
-                    if i == 9:
-                        break
+        emb = self.recognizer(img)[0].cpu().numpy()
 
-                emb = torch.mean(y, dim=(2, 3)).flatten()
-                return (emb / emb.norm()).cpu().numpy()
-            except Exception as e:
-                print(f"ERR: yolo_backbone embedding failed: {e}")
-                return None
+        # Normalize embedding (L2)
+        emb = emb / np.linalg.norm(emb)
 
-        # --------------------- DEEPFACE (ARC/VGG) ---------------------
-        if model in ["arcface", "vgg"]:
-            try:
-                from deepface import DeepFace
-                rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
-                model_name_map = {"arcface": "ArcFace", "vgg": "VGG-Face"}
-
-                res = DeepFace.represent(
-                    img_path=rgb,
-                    model_name=model_name_map[model],
-                    enforce_detection=False,
-                    detector_backend="skip"
-                )
-                if isinstance(res, list) and len(res) > 0 and "embedding" in res[0]:
-                    return np.array(res[0]["embedding"])
-                return None
-            except Exception as e:
-                print(f"ERR: deepface embedding failed: {e}")
-                return None
-
-        return None
+        return emb
 
     def get_distance(self, a, b):
-        try:
-            return 1 - np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
-        except Exception:
-            return float("inf")
+        return 1 - np.dot(a, b)
 
     def blur(self, img):
         try:
@@ -230,7 +155,6 @@ class ActiveModel:
             return None, []
 
         if self.detector is None:
-            # if detector missing, return original frame (no detection)
             return frame, []
 
         sframe = cv2.resize(frame, self.cfg.res)
@@ -277,7 +201,7 @@ class ActiveModel:
                         "box": [x1, y1, x2, y2],
                         "ok": is_known,
                         "score": float(score)
-                    })
+                        })
             except Exception as e:
                 print(f"ERR: exception while parsing detection: {e}")
                 continue

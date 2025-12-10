@@ -1,8 +1,8 @@
 from flask import Flask, render_template, session, redirect, request, jsonify, url_for
 from flask_sock import Sock
 from werkzeug.utils import secure_filename
-from src.connection import Database
-from src import utils
+from connection import Database
+import utils
 import os
 import re
 import base64
@@ -11,7 +11,7 @@ import secrets
 import cv2
 import numpy as np
 import traceback
-from src.model import ActiveModel, ActiveModelConfig
+from model import ActiveModel, ActiveModelConfig
 
 app = Flask(__name__)
 app.secret_key = "INI KUNCI RAHASIA YANG TIDAK RAHASIA C4F3B4BE600DF00D"
@@ -150,7 +150,7 @@ def ws_camera(ws):
     user_whitelist_dir = os.path.join(app.static_folder, "whitelist", str(user_id))
     os.makedirs(user_whitelist_dir, exist_ok=True)
 
-    cfg = ActiveModelConfig(selected_model="facenet", whitelist_dir=user_whitelist_dir)
+    cfg = ActiveModelConfig(whitelist_dir=user_whitelist_dir)
     model = ActiveModel(cfg)
 
     print(f"WebSocket connected for user_id: {user_id}, whitelist: {user_whitelist_dir}")

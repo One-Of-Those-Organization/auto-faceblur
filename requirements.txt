@@ -46,7 +46,7 @@ keras==3.12.0
 kiwisolver==1.4.9
 libclang==18.1.1
 lightecc==0.0.3
-lightphe==0.0.15
+lightphe>=0.0.15
 lz4==4.4.5
 Markdown==3.10
 markdown-it-py==4.0.0
@@ -106,7 +106,7 @@ setuptools==80.9.0
 simple-websocket==1.1.0
 six==1.17.0
 soupsieve==2.8
-sympy==1.12
+sympy>=1.13.3
 tensorboard==2.20.0
 tensorboard-data-server==0.7.2
 tensorflow==2.20.0
